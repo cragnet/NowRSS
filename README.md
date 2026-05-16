@@ -76,7 +76,3 @@ See [AI_SETUP.md](docs/AI_SETUP.md) for detailed configuration.
 ## License
 
 MIT License — see [LICENSE](LICENSE) file.
-
-## Acknowledgments
-
-Inspired by [SmartRSS](https://github.com/VinsonGuo/SmartRSS-Windows) and [Feedbin](https://feedbin.com).
