@@ -352,26 +352,32 @@ class AppState extends ChangeNotifier {
       _feeds = feeds;
       await _logger.info('Fetched ${feeds.length} feeds with metadata');
 
-      // Fetch unread entries (Feedbin returns full entries with isRead=false)
-      setLoading(true, label: 'Fetching unread articles...', progress: 0.4);
-      final unreadArticles = await _apiClient!.getUnreadEntries();
-      await _logger.info('Fetched ${unreadArticles.length} unread articles');
+      // Fetch entries from last 180 days (reaches Nov 2024)
+      setLoading(true, label: 'Fetching recent entries (6 months)...', progress: 0.3);
+      final recentArticles = await _apiClient!.getRecentEntries(days: 180);
+      await _logger.info('Fetched ${recentArticles.length} recent entries (180d window)');
 
-      // Fetch starred entries (Feedbin returns full entries with correct read/starred flags)
-      setLoading(true, label: 'Fetching starred articles...', progress: 0.55);
+      // Fetch unread IDs (lightweight list)
+      setLoading(true, label: 'Fetching unread list...', progress: 0.5);
+      final unreadIds = await _apiClient!.getUnreadEntryIds();
+      await _logger.info('Feedbin reports ${unreadIds.length} unread articles');
+
+      // Fetch starred entries (full content, for any outside the 180-day window)
+      setLoading(true, label: 'Fetching starred articles...', progress: 0.6);
       final starredArticles = await _apiClient!.getStarredEntries();
       await _logger.info('Fetched ${starredArticles.length} starred articles');
 
-      // Build merged set of IDs to keep
-      final idsToKeep = <String>{...unreadArticles.map((a) => a.id), ...starredArticles.map((a) => a.id)};
+      // Cross-reference: articles in the 180-day window that are NOT in the unread list = read on Feedbin
+      final unreadSet = unreadIds.toSet();
+      final starredSet = starredArticles.map((a) => a.id).toSet();
+      for (final article in recentArticles) {
+        article.isRead = !unreadSet.contains(article.id);
+        article.isStarred = starredSet.contains(article.id);
+      }
 
-      // Mark any articles in DB that are NOT in the unread list as read
-      // (they were previously unread but have been read on Feedbin)
-      await _db.markArticlesReadExcept(idsToKeep.toList());
-
-      // Merge: Feedbin authoritative read/starred flags
+      // Merge: recent entries (with corrected read/starred flags) + starred-only entries
       final mergedMap = <String, Article>{};
-      for (final a in unreadArticles) {
+      for (final a in recentArticles) {
         mergedMap[a.id] = a;
       }
       for (final a in starredArticles) {
@@ -384,7 +390,7 @@ class AppState extends ChangeNotifier {
       final articles = mergedMap.values.toList();
 
       // Apply keyword filters
-      setLoading(true, label: 'Applying filters...', progress: 0.7);
+      setLoading(true, label: 'Applying filters...', progress: 0.75);
       final filteredArticles = _applyKeywordFilters(articles);
 
       // Preserve locally cached HTML / summaries

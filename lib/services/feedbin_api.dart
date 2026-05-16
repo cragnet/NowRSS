@@ -186,6 +186,20 @@ class FeedbinApiClient {
     }
   }
 
+  /// Fetch only the unread entry IDs (lightweight).
+  Future<List<String>> getUnreadEntryIds() async {
+    final url = '$baseUrl/v2/unread_entries.json';
+    await _logger.apiRequest('GET', url);
+    final response = await http.get(Uri.parse(url), headers: _headers);
+    await _logger.apiResponse('GET', url, response.statusCode,
+        bodyPreview: response.body.substring(0, response.body.length > 100 ? 100 : response.body.length));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to get unread IDs: ${response.statusCode}');
+    }
+    final List<dynamic> data = jsonDecode(response.body);
+    return data.map((id) => id.toString()).toList();
+  }
+
   Future<List<Article>> getUnreadEntries() async {
     // First get unread entry IDs, then fetch the entries
     final idsUrl = '$baseUrl/v2/unread_entries.json';
