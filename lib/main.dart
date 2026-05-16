@@ -50,7 +50,54 @@ class NowRSSApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const MainScreen(),
+      home: const AppLifecycleWrapper(child: MainScreen()),
     );
+  }
+}
+
+class AppLifecycleWrapper extends StatefulWidget {
+  final Widget child;
+  const AppLifecycleWrapper({super.key, required this.child});
+
+  @override
+  State<AppLifecycleWrapper> createState() => _AppLifecycleWrapperState();
+}
+
+class _AppLifecycleWrapperState extends State<AppLifecycleWrapper>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _onReady();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _onReady() {
+    // Wait for AppState to initialize, then start auto-sync
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final appState = context.read<AppState>();
+      appState.startAutoSync();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final appState = context.read<AppState>();
+    if (state == AppLifecycleState.resumed) {
+      appState.startAutoSync();
+    } else {
+      appState.stopAutoSync();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }

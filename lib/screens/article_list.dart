@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
 import '../models/article.dart';
+import 'batch_dialog.dart';
 import 'package:intl/intl.dart';
 
 class ArticleList extends StatelessWidget {
@@ -52,11 +53,28 @@ class ArticleList extends StatelessWidget {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.done_all, size: 20),
-                    tooltip: 'Mark all as read',
-                    onPressed: articles.isNotEmpty ? onMarkAllRead : null,
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.auto_awesome),
+                  tooltip: 'AI Summarize All Unread',
+                  onPressed: () {
+                    final unread = appState.articles.where((a) => !a.isRead).toList();
+                    if (unread.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('No unread articles to summarize')),
+                      );
+                      return;
+                    }
+                    showDialog(
+                      context: context,
+                      builder: (_) => BatchDialog(articles: appState.articles),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.done_all, size: 20),
+                  tooltip: 'Mark all as read',
+                  onPressed: articles.isNotEmpty ? onMarkAllRead : null,
+                ),
                 ],
               ),
             ),

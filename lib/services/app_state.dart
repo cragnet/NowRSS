@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -436,5 +437,29 @@ class AppState extends ChangeNotifier {
     
     await saveSettings();
     notifyListeners();
+  }
+
+  // Auto-sync timer
+  Timer? _syncTimer;
+
+  void startAutoSync() {
+    _syncTimer?.cancel();
+    if (_autoSyncMinutes > 0) {
+      _syncTimer = Timer.periodic(
+        Duration(minutes: _autoSyncMinutes),
+        (_) => syncFeeds(),
+      );
+    }
+  }
+
+  void stopAutoSync() {
+    _syncTimer?.cancel();
+    _syncTimer = null;
+  }
+
+  @override
+  void dispose() {
+    stopAutoSync();
+    super.dispose();
   }
 }
