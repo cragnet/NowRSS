@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
+import 'settings_screen.dart';
 
 class FeedTree extends StatelessWidget {
   final Function(String?) onFeedSelected;
@@ -36,13 +37,16 @@ class FeedTree extends StatelessWidget {
                     onPressed: () => appState.syncFeeds(),
                     tooltip: 'Sync feeds',
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.settings),
-                    onPressed: () {
-                      // TODO: Open settings
-                    },
-                    tooltip: 'Settings',
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.settings),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                    );
+                  },
+                  tooltip: 'Settings',
+                ),
                 ],
               ),
             ),
