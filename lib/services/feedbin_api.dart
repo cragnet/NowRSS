@@ -165,6 +165,8 @@ class FeedbinApiClient {
         await _logger.apiResponse('GET', url, response.statusCode,
             bodyPreview: response.body.substring(0, response.body.length > 200 ? 200 : response.body.length));
 
+        // Feedbin returns 404 when there are no more pages (not empty array)
+        if (response.statusCode == 404) break;
         if (response.statusCode != 200) {
           throw Exception('Failed to get recent entries: ${response.statusCode}');
         }
