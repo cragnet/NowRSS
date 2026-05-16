@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
+import '../models/feed.dart';
 import 'settings_screen.dart';
 
 class FeedTree extends StatelessWidget {
@@ -17,6 +18,15 @@ class FeedTree extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, appState, child) {
+        // Group feeds by folder/tag
+        final Map<String, List<Feed>> feedsByFolder = {};
+        for (final feed in appState.feeds) {
+          final folder = feed.folderName ?? 'Uncategorized';
+          feedsByFolder.putIfAbsent(folder, () => []).add(feed);
+        }
+        // Sort folder names
+        final sortedFolders = feedsByFolder.keys.toList()..sort();
+
         return Column(
           children: [
             // Header with action buttons
@@ -37,79 +47,112 @@ class FeedTree extends StatelessWidget {
                     onPressed: () => appState.syncFeeds(),
                     tooltip: 'Sync feeds',
                   ),
-                IconButton(
-                  icon: const Icon(Icons.settings),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                    );
-                  },
-                  tooltip: 'Settings',
-                ),
+                  IconButton(
+                    icon: const Icon(Icons.settings),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                      );
+                    },
+                    tooltip: 'Settings',
+                  ),
                 ],
               ),
             ),
             
             const Divider(height: 1),
             
-            // Quick filters
+            // Quick filters with real counts
             _QuickFilterTile(
               icon: Icons.star,
               label: 'All Starred',
-              count: 0,
+              count: appState.starredCount,
               onTap: () => onViewChanged(ViewMode.favorites),
               color: Colors.amber,
             ),
             _QuickFilterTile(
               icon: Icons.circle,
               label: 'All Unread',
-              count: 0,
+              count: appState.unreadCount,
               onTap: () => onViewChanged(ViewMode.unread),
               color: Colors.blue,
             ),
             _QuickFilterTile(
               icon: Icons.check_circle,
               label: 'All Read',
-              count: 0,
+              count: appState.readCount,
               onTap: () => onViewChanged(ViewMode.read),
               color: Colors.grey,
+            ),
+            _QuickFilterTile(
+              icon: Icons.bar_chart,
+              label: 'Statistics',
+              count: appState.feedStats.length,
+              onTap: () => onViewChanged(ViewMode.stats),
+              color: Colors.purple,
             ),
             
             const Divider(height: 1),
             
-            // Feed list
+            // Feed tree grouped by folder
             Expanded(
               child: ListView.builder(
-                itemCount: appState.feeds.length,
-                itemBuilder: (context, index) {
-                  final feed = appState.feeds[index];
-                  return ListTile(
-                    leading: const Icon(Icons.rss_feed, size: 20),
+                itemCount: sortedFolders.length,
+                itemBuilder: (context, folderIndex) {
+                  final folderName = sortedFolders[folderIndex];
+                  final feeds = feedsByFolder[folderName]!;
+                  
+                  // Calculate folder totals
+                  int folderUnread = 0, folderRead = 0, folderStarred = 0;
+                  for (final feed in feeds) {
+                    folderUnread += feed.unreadCount;
+                    folderRead += feed.readCount;
+                    folderStarred += feed.starredCount;
+                  }
+
+                  return ExpansionTile(
+                    leading: const Icon(Icons.folder, size: 20, color: Colors.blueGrey),
                     title: Text(
-                      feed.title,
-                      style: const TextStyle(fontSize: 14),
-                      overflow: TextOverflow.ellipsis,
+                      folderName,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                     ),
-                    trailing: feed.unreadCount > 0
-                        ? Container(
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _FeedCountChip(
+                          count: folderRead,
+                          color: Colors.grey[600]!,
+                          icon: Icons.check,
+                          tooltip: 'Read',
+                        ),
+                        const SizedBox(width: 4),
+                        _FeedCountChip(
+                          count: folderStarred,
+                          color: Colors.amber,
+                          icon: Icons.star,
+                          tooltip: 'Favorites',
+                        ),
+                        const SizedBox(width: 4),
+                        if (folderUnread > 0)
+                          Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
                               color: Theme.of(context).colorScheme.primaryContainer,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
-                              '${feed.unreadCount}',
+                              '$folderUnread',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Theme.of(context).colorScheme.onPrimaryContainer,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                          )
-                        : null,
-                    dense: true,
-                    onTap: () => onFeedSelected(feed.id),
+                          ),
+                      ],
+                    ),
+                    children: feeds.map((feed) => _buildFeedTile(context, feed, appState)).toList(),
                   );
                 },
               ),
@@ -117,6 +160,120 @@ class FeedTree extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildFeedTile(BuildContext context, Feed feed, AppState appState) {
+    // Build counts from articles
+    int read = 0, starred = 0;
+    for (final a in appState.articles) {
+      if (a.feedId == feed.id) {
+        if (a.isRead) read++;
+        if (a.isStarred) starred++;
+      }
+    }
+    feed.readCount = read;
+    feed.starredCount = starred;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.only(left: 40, right: 16),
+      leading: const Icon(Icons.rss_feed, size: 18, color: Colors.blueGrey),
+      title: Text(
+        feed.title,
+        style: const TextStyle(fontSize: 13),
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (feed.lastUpdatedAt != null)
+            Text(
+              'Updated ${_formatDate(feed.lastUpdatedAt!)} · ${feed.updateFrequency ?? 'Unknown'}',
+              style: TextStyle(fontSize: 10, color: Colors.grey[600], fontWeight: FontWeight.w500),
+            ),
+        ],
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _FeedCountChip(
+            count: feed.readCount,
+            color: Colors.grey[600]!,
+            icon: Icons.check,
+            tooltip: 'Read',
+          ),
+          const SizedBox(width: 4),
+          _FeedCountChip(
+            count: feed.starredCount,
+            color: Colors.amber,
+            icon: Icons.star,
+            tooltip: 'Favorites',
+          ),
+          const SizedBox(width: 4),
+          if (feed.unreadCount > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '${feed.unreadCount}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
+      dense: true,
+      onTap: () => onFeedSelected(feed.id),
+    );
+  }
+}
+
+String _formatDate(DateTime date) {
+  final now = DateTime.now();
+  final diff = now.difference(date);
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  if (diff.inDays == 1) return 'Yesterday';
+  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  return '${date.day}/${date.month}/${date.year}';
+}
+
+class _FeedCountChip extends StatelessWidget {
+  final int count;
+  final Color color;
+  final IconData icon;
+  final String tooltip;
+
+  const _FeedCountChip({
+    required this.count,
+    required this.color,
+    required this.icon,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (count == 0) return const SizedBox.shrink();
+    return Tooltip(
+      message: '$tooltip: $count',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 2),
+          Text(
+            '$count',
+            style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
     );
   }
 }

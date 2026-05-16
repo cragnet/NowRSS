@@ -6,7 +6,7 @@ class Article {
   final String? author;
   final String? contentHtml;
   final String? contentText;
-  final String? summary;
+  String? summary;
   final DateTime? publishedAt;
   final DateTime? fetchedAt;
   final String? imageUrl;
@@ -38,8 +38,8 @@ class Article {
       author: json['author'],
       contentHtml: json['content'],
       contentText: _extractText(json['content']),
-      publishedAt: json['published'] != null 
-          ? DateTime.parse(json['published']) 
+      publishedAt: json['published'] != null
+          ? DateTime.parse(json['published'])
           : null,
       imageUrl: _extractImage(json['content']),
       isRead: json['read'] ?? false,

@@ -7,17 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-16
+
 ### Added
-- Initial project scaffold
-- Three-pane UI layout (Feed Tree | Article List | Reading Pane)
-- Feedbin API integration
-- AI provider support (Ollama Cloud, OpenAI, OpenAI-compatible)
-- Article summarization and translation
-- Duplicate detection with fuzzy matching
-- Keyword filtering with auto-mark-as-read
-- Settings export/import with optional API key inclusion
-- Progress bars for all loading operations
-- GitHub Actions CI/CD for automated Linux builds
+- Feed statistics screen — scrollable per-feed cards with 1h/24h/7d/30d article counts, frequency indicator, mini bar charts for daily and hourly patterns
+- Feed selection filters pane 2 by current view mode (clicking a feed shows only its unread/read/favorite/all articles)
+- `getRecentEntries()` in Feedbin API — paginated fetch of all entries from last N days with authoritative read/starred state
+- File-based cache for article HTML, original page HTML, and AI summaries (filesystem under `cache/{html,original,summary}/`)
+- Database schema v3 — added `cached_html`/`cached_original_html` columns (subsequently removed in favor of file cache)
+
+### Changed
+- Article reader mode now uses DOM parser (`html` package) instead of regexes — correctly handles nested quotes, apostrophes, backslashes, CDATA, malformed HTML
+- Zoom now re-flows text within pane bounds via font-size scaling instead of `Transform.scale` (no more content pushed off-screen)
+- Original view also uses DOM-based cleanup (scripts/styles stripped, images/links absolutized)
+- SQLite initialization uses `databaseFactoryFfi.openDatabase()` directly instead of mutating global `databaseFactory` (eliminates sqflite warning)
+- `syncFeeds()` fetches recent entries from Feedbin instead of only unread IDs — "All Read" now populated with articles read on other devices
+
+### Fixed
+- Duplicate `_sortOrder` declaration in `app_state.dart` causing build failure
+- Missing `sortOrder` getter causing settings screen compile error
+- Regex string-literal escape issues in `reading_pane.dart` breaking on Dart raw-string parsing
+- `HtmlEscape` missing import for `dart:convert`
 
 ## [0.2.0] - 2026-05-16
 

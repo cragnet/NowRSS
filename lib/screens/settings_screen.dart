@@ -20,6 +20,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _syncMinutesController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // Controllers will be populated in didChangeDependencies
+    // after appState is available via Provider
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final appState = Provider.of<AppState>(context, listen: false);
+    if (_usernameController.text.isEmpty && appState.hasFeedbinCredentials) {
+      _usernameController.text = appState.feedbinUsername ?? '';
+      _passwordController.text = appState.feedbinPassword ?? '';
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
       builder: (context, appState, child) {
@@ -68,12 +85,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       _passwordController.text,
                                     );
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Credentials saved — syncing now...')),
+                                      const SnackBar(content: Text('Credentials saved')),
                                     );
                                   }
                                 },
                                 icon: const Icon(Icons.save),
-                                label: const Text('Save & Sync Now'),
+                                label: const Text('Save Credentials'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () async {
+                                  if (_usernameController.text.isNotEmpty &&
+                                      _passwordController.text.isNotEmpty) {
+                                    appState.setFeedbinCredentials(
+                                      _usernameController.text,
+                                      _passwordController.text,
+                                    );
+                                    final ok = await appState.testFeedbinConnection();
+                                    if (ok) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Connection successful! Syncing now...'),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      );
+                                      await appState.syncFeeds();
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(appState.error ?? 'Connection failed'),
+                                          backgroundColor: Colors.red,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                },
+                                icon: const Icon(Icons.wifi_tethering),
+                                label: const Text('Test & Sync'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Theme.of(context).colorScheme.primary,
+                                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                                ),
                               ),
                             ),
                           ],
@@ -140,6 +194,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const Divider(height: 1),
                       ListTile(
+                        title: const Text('Default sort order'),
+                        subtitle: Text(appState.sortOrder.name[0].toUpperCase() + appState.sortOrder.name.substring(1)),
+                        trailing: DropdownButton<SortOrder>(
+                          value: appState.sortOrder,
+                          items: const [
+                            DropdownMenuItem(value: SortOrder.newest, child: Text('Newest first')),
+                            DropdownMenuItem(value: SortOrder.oldest, child: Text('Oldest first')),
+                            DropdownMenuItem(value: SortOrder.hottest, child: Text('Hottest first')),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) appState.setSortOrder(v);
+                          },
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        title: const Text('Read articles limit'),
+                        subtitle: Text('${appState.readDaysLimit} days'),
+                        trailing: SizedBox(
+                          width: 80,
+                          child: TextField(
+                            controller: TextEditingController()..text = appState.readDaysLimit.toString(),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              suffixText: 'days',
+                              isDense: true,
+                            ),
+                            onSubmitted: (val) {
+                              final days = int.tryParse(val) ?? 7;
+                              appState.setReadDaysLimit(days);
+                            },
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
                         title: const Text('Startup page'),
                         subtitle: Text(appState.startupPage),
                         trailing: DropdownButton<String>(
@@ -163,7 +253,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // AI Providers
                 _buildSectionTitle(context, 'AI Providers'),
-                ...appState.aiProviders.map((provider) => _buildProviderCard(provider, appState)),
+                ...appState.aiProviders.map((provider) => _buildProviderCard(provider, appState, context)),
                 const SizedBox(height: 8),
                 ElevatedButton.icon(
                   onPressed: () => _showAddProviderDialog(context, appState),
@@ -285,7 +375,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildProviderCard(AIProvider provider, AppState appState) {
+  Widget _buildProviderCard(AIProvider provider, AppState appState, BuildContext context) {
     final isDefault = appState.defaultProvider?.id == provider.id;
     return Card(
       child: ListTile(
@@ -294,7 +384,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           color: isDefault ? Colors.amber : null,
         ),
         title: Text(provider.name),
-        subtitle: Text('${provider.type} · ${provider.model}'),
+        subtitle: Text('${provider.type} \u00b7 ${provider.model}'),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

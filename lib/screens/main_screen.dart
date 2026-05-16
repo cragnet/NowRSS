@@ -4,6 +4,7 @@ import '../services/app_state.dart';
 import 'feed_tree.dart';
 import 'article_list.dart';
 import 'reading_pane.dart';
+import 'stats_screen.dart';
 
 class MainScreen extends StatelessWidget {
   const MainScreen({super.key});
@@ -45,58 +46,55 @@ class MainScreen extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     appState.progressLabel,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.primary),
                   ),
                 ),
               
-              // Main three-pane layout
+              // Main layout: three-pane OR full-screen stats
               Expanded(
-                child: Row(
-                  children: [
-                    // Left: Feed Tree
-                    SizedBox(
-                      width: 250,
-                      child: FeedTree(
-                        onFeedSelected: (feedId) {
-                          // TODO: Filter articles by feed
-                        },
-                        onViewChanged: (view) {
-                          appState.setView(view);
-                        },
-                      ),
+                child: appState.currentView == ViewMode.stats
+                  ? const StatsScreen()
+                  : Row(
+                      children: [
+                        // Left: Feed Tree
+                        SizedBox(
+                          width: 250,
+                          child: FeedTree(
+                            onFeedSelected: (feedId) {
+                              appState.selectFeed(feedId);
+                            },
+                            onViewChanged: (view) {
+                              appState.setView(view);
+                            },
+                          ),
+                        ),
+                        
+                        const VerticalDivider(width: 1),
+                        
+                        // Center: Article List
+                        Expanded(
+                          flex: 1,
+                          child: ArticleList(
+                            onArticleSelected: (article) {
+                              appState.selectArticle(article);
+                            },
+                            onMarkAllRead: () {
+                              _confirmMarkAllRead(context, appState);
+                            },
+                          ),
+                        ),
+                        
+                        const VerticalDivider(width: 1),
+                        
+                        // Right: Reading Pane
+                        Expanded(
+                          flex: 2,
+                          child: ReadingPane(
+                            article: appState.selectedArticle,
+                          ),
+                        ),
+                      ],
                     ),
-                    
-                    // Divider
-                    const VerticalDivider(width: 1),
-                    
-                    // Center: Article List
-                    Expanded(
-                      flex: 1,
-                      child: ArticleList(
-                        onArticleSelected: (article) {
-                          appState.selectArticle(article);
-                        },
-                        onMarkAllRead: () {
-                          _confirmMarkAllRead(context, appState);
-                        },
-                      ),
-                    ),
-                    
-                    // Divider
-                    const VerticalDivider(width: 1),
-                    
-                    // Right: Reading Pane
-                    Expanded(
-                      flex: 2,
-                      child: ReadingPane(
-                        article: appState.selectedArticle,
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ],
           );

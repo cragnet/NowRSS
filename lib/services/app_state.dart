@@ -6,24 +6,29 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/feed.dart';
 import '../models/article.dart';
+import '../models/feed_stats.dart';
 import '../models/ai_provider.dart';
 import 'feedbin_api.dart';
 import 'ai_provider_service.dart';
 import 'database_service.dart';
+import 'file_cache_service.dart';
 import 'log_service.dart';
 
-enum ViewMode { feeds, unread, read, favorites }
+enum ViewMode { feeds, unread, read, favorites, stats }
+enum SortOrder { newest, oldest, hottest }
 
 class AppState extends ChangeNotifier {
   FeedbinApiClient? _apiClient;
   final AIProviderService _aiService = AIProviderService();
   final DatabaseService _db = DatabaseService();
+  final FileCacheService _fileCache = FileCacheService();
   final LogService _logger = LogService();
 
   List<Feed> _feeds = [];
   List<Article> _articles = [];
   Article? _selectedArticle;
   ViewMode _currentView = ViewMode.unread;
+  String? _selectedFeedId;
   bool _isLoading = false;
   String? _error;
   double _progress = 0.0;
@@ -36,17 +41,24 @@ class AppState extends ChangeNotifier {
   int _autoSyncMinutes = 15;
   bool _markReadOnScroll = true;
   bool _syncOnStartup = true;
+  SortOrder _sortOrder = SortOrder.newest;
+  int _readDaysLimit = 7;
+  double _textZoom = 1.0;
   String? _feedbinUsername;
   String? _feedbinPassword;
 
   bool _isInitialized = false;
   Timer? _syncTimer;
+  int _totalUnread = 0;
+  int _totalRead = 0;
+  int _totalStarred = 0;
 
   // Getters
   List<Feed> get feeds => _feeds;
   List<Article> get articles => _articles;
   Article? get selectedArticle => _selectedArticle;
   ViewMode get currentView => _currentView;
+  String? get selectedFeedId => _selectedFeedId;
   bool get isLoading => _isLoading;
   String? get error => _error;
   double get progress => _progress;
@@ -60,7 +72,83 @@ class AppState extends ChangeNotifier {
   bool get syncOnStartup => _syncOnStartup;
   int get autoSyncMinutes => _autoSyncMinutes;
   String get startupPage => _startupPage;
+  SortOrder get sortOrder => _sortOrder;
+  int get readDaysLimit => _readDaysLimit;
+  double get textZoom => _textZoom;
   LogService get logger => _logger;
+  String? get feedbinUsername => _feedbinUsername;
+  String? get feedbinPassword => _feedbinPassword;
+
+  // Counts
+  int get unreadCount => _totalUnread;
+  int get readCount => _totalRead;
+  int get starredCount => _totalStarred;
+
+  List<FeedStats> _feedStats = [];
+  List<FeedStats> get feedStats => _feedStats;
+  int get totalArticleCount => _totalUnread + _totalRead;
+  Map<String, int> get feedUnreadCounts {
+    final counts = <String, int>{};
+    for (final article in _articles) {
+      if (!article.isRead) {
+        counts[article.feedId] = (counts[article.feedId] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  Future<void> _updateCounts() async {
+    _totalUnread = await _db.getTotalUnreadCount();
+    _totalRead = await _db.getTotalReadCount();
+    _totalStarred = await _db.getTotalStarredCount();
+    notifyListeners();
+  }
+
+  Future<void> computeFeedStats() async {
+    if (_feeds.isEmpty) return;
+    final List<FeedStats> stats = [];
+    for (final feed in _feeds) {
+      final raw = await _db.getFeedStatsRaw(feed.id);
+      if (raw.isEmpty) continue;
+      final row = raw.first;
+
+      final hourlyRaw = await _db.getHourlyDistribution(feed.id);
+      final hourly = List<int>.filled(24, 0);
+      for (final h in hourlyRaw) {
+        final idx = (h['hour'] as num).toInt();
+        if (idx >= 0 && idx < 24) hourly[idx] = (h['cnt'] as num).toInt();
+      }
+
+      final dailyRaw = await _db.getDailyDistribution(feed.id);
+      final daily = List<int>.filled(7, 0);
+      for (final d in dailyRaw) {
+        final idx = (d['day'] as num).toInt();
+        if (idx >= 0 && idx < 7) daily[idx] = (d['cnt'] as num).toInt();
+      }
+      // reverse so index 0 = today
+      daily.reversed.toList();
+
+      final total = (row['total'] as num).toInt();
+      final last30 = (row['last_30d'] as num?)?.toInt() ?? 0;
+
+      stats.add(FeedStats(
+        feedId: feed.id,
+        feedTitle: feed.title,
+        folderName: feed.folderName,
+        totalArticles: total,
+        lastHour: (row['last_hour'] as num?)?.toInt() ?? 0,
+        lastDay: (row['last_day'] as num?)?.toInt() ?? 0,
+        last7Days: (row['last_7d'] as num?)?.toInt() ?? 0,
+        last30Days: last30,
+        unreadCount: (row['unread'] as num?)?.toInt() ?? 0,
+        frequency: last30 / 30.0,
+        hourlyDistribution: hourly,
+        dailyDistribution: daily.reversed.toList(),
+      ));
+    }
+    _feedStats = stats;
+    notifyListeners();
+  }
 
   AppState() {
     _initialize();
@@ -104,39 +192,79 @@ class AppState extends ChangeNotifier {
 
   void setView(ViewMode view) {
     _currentView = view;
+    _selectedFeedId = null;
+    _loadArticlesForView();
+    notifyListeners();
+  }
+
+  void selectFeed(String? feedId) {
+    _selectedFeedId = feedId;
     _loadArticlesForView();
     notifyListeners();
   }
 
   void selectArticle(Article? article) {
-    _selectedArticle = article;
-    if (article != null && !article.isRead && _markReadOnScroll) {
-      markArticleRead(article.id, true);
+    // If mark-read-on-scroll is enabled and we're leaving an unread article, mark it read
+    if (_markReadOnScroll && _selectedArticle != null && !_selectedArticle!.isRead) {
+      markArticleRead(_selectedArticle!.id, true);
     }
+    _selectedArticle = article;
     notifyListeners();
   }
 
   Future<void> _loadCachedData() async {
     _feeds = await _db.getFeeds();
+    await _updateCounts();
     await _loadArticlesForView();
     notifyListeners();
   }
 
   Future<void> _loadArticlesForView() async {
+    final feedId = _selectedFeedId;
     switch (_currentView) {
       case ViewMode.unread:
-        _articles = await _db.getArticles(isRead: false);
+        _articles = await _db.getArticles(isRead: false, feedId: feedId);
         break;
       case ViewMode.read:
-        _articles = await _db.getArticles(isRead: true);
+        _articles = await _db.getArticles(isRead: true, feedId: feedId);
         break;
       case ViewMode.favorites:
-        _articles = await _db.getArticles(isStarred: true);
+        _articles = await _db.getArticles(isStarred: true, feedId: feedId);
         break;
       case ViewMode.feeds:
-        _articles = await _db.getArticles();
+        _articles = await _db.getArticles(feedId: feedId);
+        break;
+      case ViewMode.stats:
+        _articles = [];
         break;
     }
+    _applySort();
+  }
+
+  void _applySort() {
+    switch (_sortOrder) {
+      case SortOrder.newest:
+        _articles.sort((a, b) => (b.publishedAt ?? DateTime(1970)).compareTo(a.publishedAt ?? DateTime(1970)));
+        break;
+      case SortOrder.oldest:
+        _articles.sort((a, b) => (a.publishedAt ?? DateTime(1970)).compareTo(b.publishedAt ?? DateTime(1970)));
+        break;
+      case SortOrder.hottest:
+        _articles.sort((a, b) => _hotScore(b).compareTo(_hotScore(a)));
+        break;
+    }
+  }
+
+  double _hotScore(Article article) {
+    // Hottest = unread + starred*2 + recency bonus
+    double score = 0;
+    if (!article.isRead) score += 5;
+    if (article.isStarred) score += 10;
+    final age = DateTime.now().difference(article.publishedAt ?? DateTime(1970)).inHours;
+    if (age < 1) score += 20;
+    else if (age < 24) score += 10;
+    else if (age < 168) score += 5;
+    return score;
   }
 
   Future<void> setFeedbinCredentials(String username, String password) async {
@@ -150,9 +278,32 @@ class AppState extends ChangeNotifier {
     await prefs.setString('feedbinPassword', base64Encode(utf8.encode(password)));
 
     notifyListeners();
+  }
 
-    // Immediately test by syncing
-    await syncFeeds();
+  /// Test Feedbin credentials without performing a full sync
+  Future<bool> testFeedbinConnection() async {
+    if (_apiClient == null) {
+      setError('No credentials set');
+      return false;
+    }
+    setLoading(true, label: 'Testing connection...');
+    try {
+      final ok = await _apiClient!.testConnection();
+      setLoading(false);
+      if (!ok) {
+        setError('Authentication failed — check your username (email) and password');
+        await _logger.error('Feedbin connection test failed (401)');
+      } else {
+        clearError();
+        await _logger.info('Feedbin connection test succeeded');
+      }
+      return ok;
+    } catch (e, st) {
+      setLoading(false);
+      setError('Connection test error: $e');
+      await _logger.error('Feedbin connection test error', error: e, stackTrace: st);
+      return false;
+    }
   }
 
   Future<void> syncFeeds() async {
@@ -171,32 +322,91 @@ class AppState extends ChangeNotifier {
       // Fetch feeds
       setLoading(true, label: 'Fetching feeds...', progress: 0.2);
       final feeds = await _apiClient!.getFeeds();
+      
+      // Fetch taggings (folders)
+      setLoading(true, label: 'Fetching folders...', progress: 0.22);
+      final taggings = await _apiClient!.getTaggings();
+      for (final feed in feeds) {
+        // Match by subscription id or feed_id
+        feed.folderName = _findTagForFeed(taggings, feed.id);
+        if (feed.folderName == null || feed.folderName!.isEmpty) {
+          feed.folderName = 'Uncategorized';
+        }
+      }
+      
+      // Fetch feed metadata (last updated, frequency)
+      setLoading(true, label: 'Fetching feed stats...', progress: 0.25);
+      final feedMetadata = await _apiClient!.getAllFeedMetadata();
+      for (final feed in feeds) {
+        final meta = feedMetadata[int.tryParse(feed.id)];
+        if (meta != null) {
+          feed.lastUpdatedAt = meta['last_published_entry'] != null
+              ? DateTime.parse(meta['last_published_entry'])
+              : null;
+          // Feedbin doesn't directly provide frequency, but we can infer from recent articles
+          feed.updateFrequency = _inferFrequency(meta);
+        }
+      }
+      
       await _db.insertFeeds(feeds);
       _feeds = feeds;
-      await _logger.info('Fetched ${feeds.length} feeds');
+      await _logger.info('Fetched ${feeds.length} feeds with metadata');
 
-      // Fetch unread entries
-      setLoading(true, label: 'Fetching articles...', progress: 0.5);
-      final articles = await _apiClient!.getUnreadEntries();
-      await _logger.info('Fetched ${articles.length} unread articles');
+      // Fetch recent entries (last N days) — Feedbin returns these with correct read/starred flags
+      setLoading(true, label: 'Fetching recent entries...', progress: 0.4);
+      final recentArticles = await _apiClient!.getRecentEntries(days: _readDaysLimit);
+      await _logger.info('Fetched ${recentArticles.length} recent entries (${_readDaysLimit}d window)');
+
+      // Fetch starred entries (ensures favorites outside recent window are included)
+      setLoading(true, label: 'Fetching starred entries...', progress: 0.55);
+      final starredArticles = await _apiClient!.getStarredEntries();
+      await _logger.info('Fetched ${starredArticles.length} starred articles');
+
+      // Merge: recent entries win (Feedbin has authoritative read/starred state),
+      // starred-only fill in gaps for articles outside the recent window.
+      final mergedMap = <String, Article>{};
+      for (final a in recentArticles) {
+        mergedMap[a.id] = a;
+      }
+      for (final a in starredArticles) {
+        if (!mergedMap.containsKey(a.id)) {
+          mergedMap[a.id] = a;
+        } else {
+          mergedMap[a.id]!.isStarred = true;
+        }
+      }
+      final articles = mergedMap.values.toList();
 
       // Apply keyword filters
-      setLoading(true, label: 'Applying filters...', progress: 0.8);
+      setLoading(true, label: 'Applying filters...', progress: 0.7);
       final filteredArticles = _applyKeywordFilters(articles);
       final autoMarked = articles.length - filteredArticles.where((a) => !a.isRead).length;
       if (autoMarked > 0) {
         await _logger.info('Auto-marked $autoMarked articles as read via keyword filters');
       }
 
-      // Cache articles
+      // Cache articles (merge with existing cached_html / summary)
+      await _preserveCachedFields(filteredArticles);
       await _db.insertArticles(filteredArticles);
 
+      // Enforce 10,000 article cache limit
+      await _db.enforceArticleLimit(10000);
+      final totalCached = await _db.getTotalArticleCount();
+      await _logger.info('Total cached articles: $totalCached (limit: 10000)');
+
+      // Push pending local operations to Feedbin
+      setLoading(true, label: 'Syncing local changes...', progress: 0.85);
+      await _pushPendingOperations();
+
       // Update unread counts per feed
+      final feedUnreadCounts = await _db.getAllFeedCounts();
       for (final feed in _feeds) {
-        final count = await _db.getUnreadCount(feed.id);
-        feed.unreadCount = count;
-        await _db.updateFeedUnreadCount(feed.id, count);
+        feed.unreadCount = feedUnreadCounts[feed.id] ?? 0;
+        await _db.updateFeedUnreadCount(feed.id, feed.unreadCount);
       }
+
+      // Compute statistics
+      await computeFeedStats();
 
       await _db.completeSync(0, articles.length);
       await _logger.syncComplete('full', articles.length);
@@ -250,6 +460,54 @@ class AppState extends ChangeNotifier {
     return articles;
   }
 
+  String? _findTagForFeed(Map<String, List<String>> taggings, String feedId) {
+    for (final entry in taggings.entries) {
+      if (entry.value.contains(feedId)) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
+  String? _inferFrequency(Map<String, dynamic> meta) {
+    final count = meta['entries_count'] as int?;
+    final lastPublished = meta['last_published_entry'];
+    if (count == null || lastPublished == null) return 'Unknown';
+    if (count > 50) return 'Very frequent';
+    if (count > 20) return 'Frequent';
+    if (count > 5) return 'Regular';
+    return 'Infrequent';
+  }
+
+  /// Preserve locally-cached fields (HTML, original HTML, summary) so they aren't overwritten on sync.
+  Future<void> _preserveCachedFields(List<Article> articles) async {
+    for (final article in articles) {
+      final cached = await _fileCache.loadArticleHtml(article.id);
+      if (cached != null && cached.isNotEmpty) {
+        // cached_html is no longer on Article model; cache stays on disk
+      }
+      final summary = await _fileCache.loadSummary(article.id);
+      if (summary != null && summary.isNotEmpty) {
+        article.summary = summary;
+      }
+    }
+  }
+
+  Future<void> saveCachedHtml(String articleId, String? html) async {
+    if (html == null || html.isEmpty) return;
+    await _fileCache.saveArticleHtml(articleId, html);
+  }
+
+  Future<void> saveCachedOriginalHtml(String articleId, String? html) async {
+    if (html == null || html.isEmpty) return;
+    await _fileCache.saveOriginalHtml(articleId, html);
+  }
+
+  Future<void> saveSummary(String articleId, String? summary) async {
+    if (summary == null || summary.isEmpty) return;
+    await _fileCache.saveSummary(articleId, summary);
+  }
+
   Future<void> markArticleRead(String articleId, bool read) async {
     await _db.markArticleRead(articleId, read);
     final index = _articles.indexWhere((a) => a.id == articleId);
@@ -259,13 +517,25 @@ class AppState extends ChangeNotifier {
     if (_selectedArticle?.id == articleId) {
       _selectedArticle?.isRead = read;
     }
-    if (_apiClient != null && read) {
-      try {
-        await _apiClient!.markAsRead(articleId);
-      } catch (e) {
-        await _logger.warning('Failed to sync mark-as-read to Feedbin: $e');
-      }
+    if (read) {
+      await _db.queueOperation(articleId, 'mark_read');
+      await _logger.info('Queued mark_read for article $articleId');
     }
+    await _updateCounts();
+    notifyListeners();
+  }
+
+  Future<void> toggleStar(String articleId) async {
+    final article = _articles.firstWhere((a) => a.id == articleId);
+    final newStarred = !article.isStarred;
+    await _db.starArticle(articleId, newStarred);
+    article.isStarred = newStarred;
+    if (_selectedArticle?.id == articleId) {
+      _selectedArticle?.isStarred = newStarred;
+    }
+    await _db.queueOperation(articleId, newStarred ? 'star' : 'unstar');
+    await _logger.info('Queued ${newStarred ? 'star' : 'unstar'} for article $articleId');
+    await _updateCounts();
     notifyListeners();
   }
 
@@ -281,36 +551,12 @@ class AppState extends ChangeNotifier {
     for (final article in _articles) {
       article.isRead = true;
     }
-    if (_apiClient != null) {
-      try {
-        await _apiClient!.markAllAsRead(unreadIds);
-      } catch (e) {
-        await _logger.warning('Failed to sync mark-all-read to Feedbin: $e');
-      }
+    // Queue all for sync to Feedbin
+    for (final id in unreadIds) {
+      await _db.queueOperation(id, 'mark_read');
     }
+    await _logger.info('Queued ${unreadIds.length} mark_read operations');
     setLoading(false);
-    notifyListeners();
-  }
-
-  Future<void> toggleStar(String articleId) async {
-    final article = _articles.firstWhere((a) => a.id == articleId);
-    final newStarred = !article.isStarred;
-    await _db.starArticle(articleId, newStarred);
-    article.isStarred = newStarred;
-    if (_selectedArticle?.id == articleId) {
-      _selectedArticle?.isStarred = newStarred;
-    }
-    if (_apiClient != null) {
-      try {
-        if (newStarred) {
-          await _apiClient!.starEntry(articleId);
-        } else {
-          await _apiClient!.unstarEntry(articleId);
-        }
-      } catch (e) {
-        await _logger.warning('Failed to sync star to Feedbin: $e');
-      }
-    }
     notifyListeners();
   }
 
@@ -342,6 +588,83 @@ class AppState extends ChangeNotifier {
     _startupPage = page;
     saveSettings();
     notifyListeners();
+  }
+
+  void setSortOrder(SortOrder order) {
+    _sortOrder = order;
+    saveSettings();
+    _applySort();
+    notifyListeners();
+  }
+
+  void setReadDaysLimit(int days) {
+    _readDaysLimit = days;
+    saveSettings();
+    notifyListeners();
+  }
+
+  void setTextZoom(double zoom) {
+    _textZoom = zoom.clamp(0.5, 3.0);
+    saveSettings();
+    notifyListeners();
+  }
+
+  Future<void> _pushPendingOperations() async {
+    if (_apiClient == null) return;
+    
+    final pending = await _db.getPendingOperations();
+    if (pending.isEmpty) {
+      await _logger.info('No pending operations to sync');
+      return;
+    }
+
+    await _logger.info('Pushing ${pending.length} pending operations to Feedbin');
+    final List<int> syncedIds = [];
+    final List<String> readIds = [];
+    final List<String> starIds = [];
+    final List<String> unstarIds = [];
+
+    for (final op in pending) {
+      final articleId = op['article_id'] as String;
+      final operation = op['operation'] as String;
+      switch (operation) {
+        case 'mark_read':
+          readIds.add(articleId);
+          break;
+        case 'star':
+          starIds.add(articleId);
+          break;
+        case 'unstar':
+          unstarIds.add(articleId);
+          break;
+      }
+      syncedIds.add(op['id'] as int);
+    }
+
+    // Batch operations
+    try {
+      if (readIds.isNotEmpty) {
+        await _apiClient!.markAllAsRead(readIds);
+        await _logger.info('Synced ${readIds.length} mark-reads');
+      }
+      if (starIds.isNotEmpty) {
+        for (final id in starIds) {
+          await _apiClient!.starEntry(id);
+        }
+        await _logger.info('Synced ${starIds.length} stars');
+      }
+      if (unstarIds.isNotEmpty) {
+        for (final id in unstarIds) {
+          await _apiClient!.unstarEntry(id);
+        }
+        await _logger.info('Synced ${unstarIds.length} unstars');
+      }
+      await _db.markOperationsSynced(syncedIds);
+      await _db.clearOldSyncedOperations();
+    } catch (e) {
+      await _logger.error('Failed to push pending operations', error: e);
+      // Leave them pending for next sync
+    }
   }
 
   // Auto-sync timer
@@ -409,6 +732,9 @@ class AppState extends ChangeNotifier {
     _autoSyncMinutes = prefs.getInt('autoSyncMinutes') ?? 15;
     _markReadOnScroll = prefs.getBool('markReadOnScroll') ?? true;
     _syncOnStartup = prefs.getBool('syncOnStartup') ?? true;
+    _sortOrder = SortOrder.values[prefs.getInt('sortOrder') ?? 0];
+    _readDaysLimit = prefs.getInt('readDaysLimit') ?? 7;
+    _textZoom = prefs.getDouble('textZoom') ?? 1.0;
   }
 
   Future<void> saveSettings() async {
@@ -420,6 +746,9 @@ class AppState extends ChangeNotifier {
     await prefs.setInt('autoSyncMinutes', _autoSyncMinutes);
     await prefs.setBool('markReadOnScroll', _markReadOnScroll);
     await prefs.setBool('syncOnStartup', _syncOnStartup);
+    await prefs.setInt('sortOrder', _sortOrder.index);
+    await prefs.setInt('readDaysLimit', _readDaysLimit);
+    await prefs.setDouble('textZoom', _textZoom);
     await _logger.info('Settings saved');
   }
 
@@ -575,6 +904,9 @@ class AppState extends ChangeNotifier {
       'autoSyncMinutes': _autoSyncMinutes,
       'markReadOnScroll': _markReadOnScroll,
       'syncOnStartup': _syncOnStartup,
+      'sortOrder': _sortOrder.name,
+      'readDaysLimit': _readDaysLimit,
+      'textZoom': _textZoom,
     };
   }
 
@@ -601,6 +933,9 @@ class AppState extends ChangeNotifier {
     _autoSyncMinutes = settings['autoSyncMinutes'] ?? 15;
     _markReadOnScroll = settings['markReadOnScroll'] ?? true;
     _syncOnStartup = settings['syncOnStartup'] ?? true;
+    _sortOrder = SortOrder.values.byName(settings['sortOrder'] ?? 'newest');
+    _readDaysLimit = settings['readDaysLimit'] ?? 7;
+    _textZoom = settings['textZoom']?.toDouble() ?? 1.0;
 
     await saveSettings();
     notifyListeners();
