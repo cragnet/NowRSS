@@ -496,20 +496,21 @@ class DatabaseService {
     );
   }
 
-  Future<void> purgeArticlesNotIn(List<String> keepIds) async {
+  Future<void> markArticlesReadExcept(List<String> keepIds) async {
     final db = await database;
     if (keepIds.isEmpty) {
-      await db.delete('articles');
+      // Mark ALL articles as read
+      await db.update('articles', {'is_read': 1, 'read_at': DateTime.now().millisecondsSinceEpoch});
       return;
     }
-    // Build placeholders for the IN clause
     final placeholders = List.filled(keepIds.length, '?').join(',');
-    final deleted = await db.rawDelete(
-      'DELETE FROM articles WHERE id NOT IN ($placeholders)',
-      keepIds,
+    final updated = await db.rawUpdate(
+      '''UPDATE articles SET is_read = 1, read_at = ?
+         WHERE is_read = 0 AND id NOT IN ($placeholders)''',
+      [DateTime.now().millisecondsSinceEpoch, ...keepIds],
     );
-    if (deleted > 0) {
-      print('Purged $deleted old articles');
+    if (updated > 0) {
+      print('Marked $updated articles as read (no longer in Feedbin unread list)');
     }
   }
 

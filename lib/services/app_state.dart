@@ -365,13 +365,9 @@ class AppState extends ChangeNotifier {
       // Build merged set of IDs to keep
       final idsToKeep = <String>{...unreadArticles.map((a) => a.id), ...starredArticles.map((a) => a.id)};
 
-      // Purge old articles that are no longer in Feedbin's unread or starred lists
-      final totalBefore = await _db.getTotalArticleCount();
-      await _db.purgeArticlesNotIn(idsToKeep.toList());
-      final totalAfterPurge = await _db.getTotalArticleCount();
-      if (totalBefore != totalAfterPurge) {
-        await _logger.info('Purged ${totalBefore - totalAfterPurge} old articles not in current sync');
-      }
+      // Mark any articles in DB that are NOT in the unread list as read
+      // (they were previously unread but have been read on Feedbin)
+      await _db.markArticlesReadExcept(idsToKeep.toList());
 
       // Merge: Feedbin authoritative read/starred flags
       final mergedMap = <String, Article>{};
