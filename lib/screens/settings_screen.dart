@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../services/app_state.dart';
 import '../models/ai_provider.dart';
 
@@ -17,13 +18,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _keywordController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    final appState = context.read<AppState>();
-    // Pre-fill if credentials exist
-  }
+  final _syncMinutesController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
@@ -38,8 +33,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Feedbin Section
-                _buildSectionTitle('Feedbin Account'),
+                // Feedbin Account
+                _buildSectionTitle(context, 'Feedbin Account'),
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -74,16 +69,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       _passwordController.text,
                                     );
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Credentials saved')),
+                                      const SnackBar(content: Text('Credentials saved — syncing now...')),
                                     );
                                   }
                                 },
                                 icon: const Icon(Icons.save),
-                                label: const Text('Save & Test'),
+                                label: const Text('Save & Sync Now'),
                               ),
                             ),
                           ],
                         ),
+                        if (appState.hasFeedbinCredentials) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Connected',
+                                style: TextStyle(color: Colors.green[700]),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -91,10 +99,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 const SizedBox(height: 24),
 
-                // AI Providers Section
-                _buildSectionTitle('AI Providers'),
+                // Reading & Sync Behavior
+                _buildSectionTitle(context, 'Reading & Sync'),
+                Card(
+                  child: Column(
+                    children: [
+                      SwitchListTile(
+                        title: const Text('Sync on startup'),
+                        subtitle: const Text('Automatically fetch feeds when app starts'),
+                        value: appState.syncOnStartup,
+                        onChanged: (v) => appState.setSyncOnStartup(v),
+                      ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        title: const Text('Mark as read when scrolling'),
+                        subtitle: const Text('Automatically mark articles as read when you view them'),
+                        value: appState.markReadOnScroll,
+                        onChanged: (v) => appState.setMarkReadOnScroll(v),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        title: const Text('Auto-sync interval'),
+                        subtitle: Text(appState.autoSyncMinutes > 0
+                            ? 'Every ${appState.autoSyncMinutes} minutes'
+                            : 'Disabled'),
+                        trailing: SizedBox(
+                          width: 80,
+                          child: TextField(
+                            controller: _syncMinutesController..text = appState.autoSyncMinutes.toString(),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              suffixText: 'min',
+                              isDense: true,
+                            ),
+                            onSubmitted: (val) {
+                              final mins = int.tryParse(val) ?? 0;
+                              appState.setAutoSyncMinutes(mins);
+                            },
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        title: const Text('Startup page'),
+                        subtitle: Text(appState.startupPage),
+                        trailing: DropdownButton<String>(
+                          value: appState.startupPage,
+                          items: const [
+                            DropdownMenuItem(value: 'feeds', child: Text('Feeds')),
+                            DropdownMenuItem(value: 'unread', child: Text('All Unread')),
+                            DropdownMenuItem(value: 'read', child: Text('All Read')),
+                            DropdownMenuItem(value: 'favorites', child: Text('Favorites')),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) appState.setStartupPage(v);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // AI Providers
+                _buildSectionTitle(context, 'AI Providers'),
                 ...appState.aiProviders.map((provider) => _buildProviderCard(provider, appState)),
-                
                 const SizedBox(height: 8),
                 ElevatedButton.icon(
                   onPressed: () => _showAddProviderDialog(context, appState),
@@ -104,66 +174,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 const SizedBox(height: 24),
 
-                // Keyword Filters Section
-                _buildSectionTitle('Keyword Filters'),
-                const Text(
-                  'Articles containing these keywords will be automatically marked as read:',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                // Keyword Filters
+                _buildSectionTitle(context, 'Keyword Filters'),
+                const Padding(
+                  padding: EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                  child: Text(
+                    'Articles containing these keywords will be automatically marked as read:',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    spacing: 8,
+                    children: [
+                      ...appState.filterKeywords.map((keyword) => Chip(
+                        label: Text(keyword),
+                        deleteIcon: const Icon(Icons.close, size: 16),
+                        onDeleted: () => appState.removeFilterKeyword(keyword),
+                      )),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    ...appState.filterKeywords.map((keyword) => Chip(
-                      label: Text(keyword),
-                      deleteIcon: const Icon(Icons.close, size: 16),
-                      onDeleted: () => appState.removeFilterKeyword(keyword),
-                    )),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _keywordController,
-                        decoration: const InputDecoration(
-                          labelText: 'Add keyword',
-                          hintText: 'e.g. sponsored, deal',
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _keywordController,
+                          decoration: const InputDecoration(
+                            labelText: 'Add keyword',
+                            hintText: 'e.g. sponsored, deal',
+                          ),
                         ),
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.add_circle),
-                      onPressed: () {
-                        if (_keywordController.text.isNotEmpty) {
-                          appState.addFilterKeyword(_keywordController.text);
-                          _keywordController.clear();
-                        }
-                      },
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 24),
-
-                // Data Management Section
-                _buildSectionTitle('Data Management'),
-                Card(
-                  child: Column(
-                    children: [
-                      ListTile(
-                        leading: const Icon(Icons.download),
-                        title: const Text('Export Settings'),
-                        subtitle: const Text('Save configuration to JSON file'),
-                        onTap: () => _exportSettings(context, appState),
-                      ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.upload),
-                        title: const Text('Import Settings'),
-                        subtitle: const Text('Restore from JSON file'),
-                        onTap: () => _importSettings(context, appState),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle),
+                        onPressed: () {
+                          if (_keywordController.text.isNotEmpty) {
+                            appState.addFilterKeyword(_keywordController.text);
+                            _keywordController.clear();
+                          }
+                        },
                       ),
                     ],
                   ),
@@ -171,13 +225,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 const SizedBox(height: 24),
 
-                // App Info
-                _buildSectionTitle('About'),
+                // Data Management
+                _buildSectionTitle(context, 'Data Management'),
+                Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.download),
+                        title: const Text('Export Settings'),
+                        subtitle: const Text('Save configuration to JSON file'),
+                        onTap: () => _exportSettingsToFile(context, appState),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.upload),
+                        title: const Text('Import Settings'),
+                        subtitle: const Text('Restore from JSON file'),
+                        onTap: () => _importSettingsFromFile(context, appState),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.description),
+                        title: const Text('View Log File'),
+                        subtitle: Text(appState.logger.logFilePath ?? 'No log file'),
+                        onTap: () => _showLogViewer(context, appState),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // About
+                _buildSectionTitle(context, 'About'),
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.info),
                     title: const Text('NowRSS'),
-                    subtitle: const Text('Version 0.1.0'),
+                    subtitle: const Text('Version 0.3.0'),
                   ),
                 ),
               ],
@@ -188,7 +273,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
+  Widget _buildSectionTitle(BuildContext context, String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
@@ -203,7 +288,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildProviderCard(AIProvider provider, AppState appState) {
     final isDefault = appState.defaultProvider?.id == provider.id;
-    
     return Card(
       child: ListTile(
         leading: Icon(
@@ -245,10 +329,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Name'),
-              ),
+              TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Name')),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 value: type,
@@ -260,10 +341,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 decoration: const InputDecoration(labelText: 'Type'),
               ),
               const SizedBox(height: 8),
-              TextField(
-                controller: urlController,
-                decoration: const InputDecoration(labelText: 'Base URL'),
-              ),
+              TextField(controller: urlController, decoration: const InputDecoration(labelText: 'Base URL')),
               const SizedBox(height: 8),
               TextField(
                 controller: keyController,
@@ -271,18 +349,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 obscureText: true,
               ),
               const SizedBox(height: 8),
-              TextField(
-                controller: modelController,
-                decoration: const InputDecoration(labelText: 'Model'),
-              ),
+              TextField(controller: modelController, decoration: const InputDecoration(labelText: 'Model')),
             ],
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () {
               final provider = AIProvider(
@@ -319,10 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Name'),
-              ),
+              TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Name')),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 value: type,
@@ -334,10 +403,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 decoration: const InputDecoration(labelText: 'Type'),
               ),
               const SizedBox(height: 8),
-              TextField(
-                controller: urlController,
-                decoration: const InputDecoration(labelText: 'Base URL'),
-              ),
+              TextField(controller: urlController, decoration: const InputDecoration(labelText: 'Base URL')),
               const SizedBox(height: 8),
               TextField(
                 controller: keyController,
@@ -345,18 +411,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 obscureText: true,
               ),
               const SizedBox(height: 8),
-              TextField(
-                controller: modelController,
-                decoration: const InputDecoration(labelText: 'Model'),
-              ),
+              TextField(controller: modelController, decoration: const InputDecoration(labelText: 'Model')),
             ],
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () {
               final index = appState.aiProviders.indexWhere((p) => p.id == provider.id);
@@ -381,87 +441,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _exportSettings(BuildContext context, AppState appState) async {
+  Future<void> _exportSettingsToFile(BuildContext context, AppState appState) async {
     final includeKey = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Export Settings'),
         content: const Text(
-          'Do you want to include API keys in the export?\n\n'
-          'Warning: This will store sensitive credentials in the exported file.',
+          'Include API keys in export?\n\nWarning: This stores sensitive credentials in the file.',
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('No, exclude keys'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Yes, include keys'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Exclude Keys')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Include Keys')),
         ],
       ),
     );
 
     if (includeKey == null) return;
 
-    final settings = appState.exportSettings(includeApiKey: includeKey);
-    final json = const JsonEncoder.withIndent('  ').convert(settings);
-    
-    // For now, show in a dialog — file picker can be added later
+    try {
+      final file = await appState.exportSettingsToFile(includeApiKey: includeKey);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Settings saved to: ${file.path}')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _importSettingsFromFile(BuildContext context, AppState appState) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+      if (result == null || result.files.single.path == null) return;
+
+      final file = File(result.files.single.path!);
+      await appState.importSettingsFromFile(file);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Settings imported successfully')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Import failed: $e')),
+      );
+    }
+  }
+
+  void _showLogViewer(BuildContext context, AppState appState) {
+    final path = appState.logger.logFilePath;
+    if (path == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No log file available')),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Exported Settings'),
-        content: SingleChildScrollView(
-          child: SelectableText(json),
+        title: const Text('Log File'),
+        content: SizedBox(
+          width: 800,
+          height: 500,
+          child: FutureBuilder<String>(
+            future: File(path).readAsString(),
+            builder: (context, snapshot) {
+              if (snapshot.hasData) {
+                return SingleChildScrollView(
+                  child: SelectableText(
+                    snapshot.data!,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                  ),
+                );
+              }
+              return const Center(child: CircularProgressIndicator());
+            },
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _importSettings(BuildContext context, AppState appState) async {
-    final controller = TextEditingController();
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Import Settings'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Paste JSON here',
-            hintText: '{"version": "1.0", ...}',
-          ),
-          maxLines: 10,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              try {
-                final settings = jsonDecode(controller.text);
-                appState.importSettings(settings);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Settings imported successfully')),
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Invalid JSON: $e')),
-                );
-              }
-            },
-            child: const Text('Import'),
           ),
         ],
       ),
