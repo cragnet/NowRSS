@@ -23,8 +23,10 @@ class FeedbinApiClient {
     'Content-Type': 'application/json',
   };
 
+  // === SUBSCRIPTIONS (FEEDS) ===
+
   Future<List<Feed>> getFeeds() async {
-    final url = '$baseUrl/v2/feeds.json';
+    final url = '$baseUrl/v2/subscriptions.json';
     await _logger.apiRequest('GET', url);
     try {
       final response = await http.get(
@@ -36,7 +38,13 @@ class FeedbinApiClient {
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => Feed.fromJson(json)).toList();
+        return data.map((json) => Feed(
+          id: json['feed_id'].toString(),
+          title: json['title'] ?? 'Untitled',
+          url: json['feed_url'],
+          siteUrl: json['site_url'],
+          faviconUrl: json['icon_url'],
+        )).toList();
       }
       throw Exception('Failed to load feeds: ${response.statusCode}');
     } catch (e, st) {
@@ -45,22 +53,30 @@ class FeedbinApiClient {
     }
   }
 
+  // === ENTRIES (ARTICLES) ===
+
   Future<List<Article>> getUnreadEntries() async {
-    final url = '$baseUrl/v2/entries.json?unread=true&per_page=100';
-    await _logger.apiRequest('GET', url);
+    // First get unread entry IDs, then fetch the entries
+    final idsUrl = '$baseUrl/v2/unread_entries.json';
+    await _logger.apiRequest('GET', idsUrl);
+    
     try {
-      final response = await http.get(
-        Uri.parse(url),
+      final idsResponse = await http.get(
+        Uri.parse(idsUrl),
         headers: _headers,
       );
-      await _logger.apiResponse('GET', url, response.statusCode,
-          bodyPreview: response.body.substring(0, response.body.length > 200 ? 200 : response.body.length));
+      await _logger.apiResponse('GET', idsUrl, idsResponse.statusCode,
+          bodyPreview: idsResponse.body.substring(0, idsResponse.body.length > 100 ? 100 : idsResponse.body.length));
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => Article.fromFeedbinJson(json)).toList();
+      if (idsResponse.statusCode != 200) {
+        throw Exception('Failed to get unread entry IDs: ${idsResponse.statusCode}');
       }
-      throw Exception('Failed to load entries: ${response.statusCode}');
+
+      final List<dynamic> entryIds = jsonDecode(idsResponse.body);
+      if (entryIds.isEmpty) return [];
+
+      // Fetch entries in batches
+      return await _getEntriesByIds(entryIds.map((id) => id.toString()).toList());
     } catch (e, st) {
       await _logger.error('Feedbin getUnreadEntries failed', error: e, stackTrace: st);
       throw Exception('Feedbin API error: $e');
@@ -68,25 +84,51 @@ class FeedbinApiClient {
   }
 
   Future<List<Article>> getStarredEntries() async {
-    final url = '$baseUrl/v2/entries.json?starred=true&per_page=100';
-    await _logger.apiRequest('GET', url);
+    // First get starred entry IDs, then fetch the entries
+    final idsUrl = '$baseUrl/v2/starred_entries.json';
+    await _logger.apiRequest('GET', idsUrl);
+    
     try {
-      final response = await http.get(
-        Uri.parse(url),
+      final idsResponse = await http.get(
+        Uri.parse(idsUrl),
         headers: _headers,
       );
-      await _logger.apiResponse('GET', url, response.statusCode);
+      await _logger.apiResponse('GET', idsUrl, idsResponse.statusCode,
+          bodyPreview: idsResponse.body.substring(0, idsResponse.body.length > 100 ? 100 : idsResponse.body.length));
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => Article.fromFeedbinJson(json)).toList();
+      if (idsResponse.statusCode != 200) {
+        throw Exception('Failed to get starred entry IDs: ${idsResponse.statusCode}');
       }
-      throw Exception('Failed to load starred entries: ${response.statusCode}');
+
+      final List<dynamic> entryIds = jsonDecode(idsResponse.body);
+      if (entryIds.isEmpty) return [];
+
+      return await _getEntriesByIds(entryIds.map((id) => id.toString()).toList());
     } catch (e, st) {
       await _logger.error('Feedbin getStarredEntries failed', error: e, stackTrace: st);
       throw Exception('Feedbin API error: $e');
     }
   }
+
+  Future<List<Article>> _getEntriesByIds(List<String> ids) async {
+    final url = '$baseUrl/v2/entries.json?ids=${ids.join(",")}&per_page=100';
+    await _logger.apiRequest('GET', url);
+    
+    final response = await http.get(
+      Uri.parse(url),
+      headers: _headers,
+    );
+    await _logger.apiResponse('GET', url, response.statusCode,
+        bodyPreview: response.body.substring(0, response.body.length > 200 ? 200 : response.body.length));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((json) => Article.fromFeedbinJson(json)).toList();
+    }
+    throw Exception('Failed to load entries: ${response.statusCode}');
+  }
+
+  // === MARK READ / STAR ===
 
   Future<void> markAsRead(String entryId) async {
     final url = '$baseUrl/v2/reads.json';
