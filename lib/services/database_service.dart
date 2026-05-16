@@ -249,6 +249,7 @@ class DatabaseService {
     bool? isRead,
     bool? isStarred,
     String? feedId,
+    List<String>? feedIds,
     int limit = 5000,
     int offset = 0,
   }) async {
@@ -268,6 +269,10 @@ class DatabaseService {
     if (feedId != null) {
       where += ' AND feed_id = ?';
       whereArgs.add(feedId);
+    }
+    if (feedIds != null && feedIds.isNotEmpty) {
+      where += ' AND feed_id IN (${List.filled(feedIds.length, '?').join(',')})';
+      whereArgs.addAll(feedIds);
     }
     
     final List<Map> maps = await db.query(
@@ -377,6 +382,36 @@ class DatabaseService {
     final Map<String, int> counts = {};
     for (final row in results) {
       counts[row['feed_id'] as String] = (row['unread'] as int?) ?? 0;
+    }
+    return counts;
+  }
+
+  Future<Map<String, int>> getAllFeedReadCounts() async {
+    final db = await database;
+    final results = await db.rawQuery('''
+      SELECT 
+        feed_id,
+        SUM(CASE WHEN is_read = 1 THEN 1 ELSE 0 END) as read
+      FROM articles GROUP BY feed_id
+    ''');
+    final Map<String, int> counts = {};
+    for (final row in results) {
+      counts[row['feed_id'] as String] = (row['read'] as int?) ?? 0;
+    }
+    return counts;
+  }
+
+  Future<Map<String, int>> getAllFeedStarredCounts() async {
+    final db = await database;
+    final results = await db.rawQuery('''
+      SELECT 
+        feed_id,
+        SUM(CASE WHEN is_starred = 1 THEN 1 ELSE 0 END) as starred
+      FROM articles GROUP BY feed_id
+    ''');
+    final Map<String, int> counts = {};
+    for (final row in results) {
+      counts[row['feed_id'] as String] = (row['starred'] as int?) ?? 0;
     }
     return counts;
   }

@@ -66,6 +66,9 @@ class MainScreen extends StatelessWidget {
                             onViewChanged: (view) {
                               appState.setView(view);
                             },
+                            onFolderSelected: (folderName, feedIds) {
+                              appState.selectFolder(folderName, feedIds);
+                            },
                           ),
                         ),
                         

@@ -70,7 +70,7 @@ class FeedbinApiClient {
         headers: _headers,
       );
       await _logger.apiResponse('GET', url, response.statusCode,
-          bodyPreview: response.body.substring(0, response.body.length > 200 ? 200 : response.body.length));
+          bodyPreview: response.body?.substring(0, response.body!.length > 200 ? 200 : response.body!.length));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
@@ -96,7 +96,7 @@ class FeedbinApiClient {
         headers: _headers,
       );
       await _logger.apiResponse('GET', url, response.statusCode,
-          bodyPreview: response.body.substring(0, response.body.length > 200 ? 200 : response.body.length));
+          bodyPreview: response.body?.substring(0, response.body!.length > 200 ? 200 : response.body!.length));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
@@ -126,7 +126,7 @@ class FeedbinApiClient {
         headers: _headers,
       );
       await _logger.apiResponse('GET', url, response.statusCode,
-          bodyPreview: response.body.substring(0, response.body.length > 200 ? 200 : response.body.length));
+          bodyPreview: response.body?.substring(0, response.body!.length > 200 ? 200 : response.body!.length));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
@@ -162,8 +162,8 @@ class FeedbinApiClient {
           Uri.parse(url),
           headers: _headers,
         );
-        await _logger.apiResponse('GET', url, response.statusCode,
-            bodyPreview: response.body.substring(0, response.body.length > 200 ? 200 : response.body.length));
+      await _logger.apiResponse('GET', url, response.statusCode,
+          bodyPreview: response.body?.substring(0, response.body!.length > 200 ? 200 : response.body!.length));
 
         // Feedbin returns 404 when there are no more pages (not empty array)
         if (response.statusCode == 404) break;
@@ -269,7 +269,7 @@ class FeedbinApiClient {
         headers: _headers,
       );
       await _logger.apiResponse('GET', url, response.statusCode,
-          bodyPreview: response.body.substring(0, response.body.length > 200 ? 200 : response.body.length));
+          bodyPreview: response.body?.substring(0, response.body!.length > 200 ? 200 : response.body!.length));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);

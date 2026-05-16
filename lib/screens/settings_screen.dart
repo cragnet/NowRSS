@@ -245,6 +245,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           },
                         ),
                       ),
+                      const Divider(height: 1),
+                      ListTile(
+                        title: const Text('AI batch size'),
+                        subtitle: Text('${appState.aiBatchSize} articles per AI digest'),
+                        trailing: SizedBox(
+                          width: 80,
+                          child: TextField(
+                            controller: TextEditingController()..text = appState.aiBatchSize.toString(),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              suffixText: 'art',
+                              isDense: true,
+                            ),
+                            onSubmitted: (val) {
+                              final size = int.tryParse(val) ?? 10;
+                              appState.setAiBatchSize(size);
+                            },
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -388,7 +408,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isDefault)
+            if (!isDefault)
+              TextButton(
+                onPressed: () => appState.setDefaultProvider(provider),
+                child: const Text('Set Default'),
+              )
+            else
               const Chip(
                 label: Text('Default'),
                 visualDensity: VisualDensity.compact,
@@ -396,6 +421,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             IconButton(
               icon: const Icon(Icons.edit, size: 20),
               onPressed: () => _showEditProviderDialog(context, provider, appState),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete, size: 20, color: Colors.red),
+              onPressed: () => appState.removeAiProvider(provider.id),
             ),
           ],
         ),
@@ -454,8 +483,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 apiKey: keyController.text,
                 model: modelController.text,
               );
-              appState.aiProviders.add(provider);
-              appState.saveSettings();
+              appState.addAiProvider(provider);
               Navigator.pop(context);
             },
             child: const Text('Add'),
@@ -508,19 +536,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () {
-              final index = appState.aiProviders.indexWhere((p) => p.id == provider.id);
-              if (index != -1) {
-                appState.aiProviders[index] = AIProvider(
-                  id: provider.id,
-                  name: nameController.text,
-                  type: type,
-                  baseUrl: urlController.text,
-                  apiKey: keyController.text,
-                  model: modelController.text,
-                  summaryPrompt: provider.summaryPrompt,
-                );
-                appState.saveSettings();
-              }
+              final updated = AIProvider(
+                id: provider.id,
+                name: nameController.text,
+                type: type,
+                baseUrl: urlController.text,
+                apiKey: keyController.text,
+                model: modelController.text,
+                summaryPrompt: provider.summaryPrompt,
+              );
+              appState.updateAiProvider(provider.id, updated);
               Navigator.pop(context);
             },
             child: const Text('Save'),

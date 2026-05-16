@@ -341,6 +341,7 @@ class _ReadingPaneState extends State<ReadingPane> {
   Widget _buildSummaryCard(Article article, double zoom) {
     final text = _summary ?? article.summary;
     if (text == null || text.isEmpty) return const SizedBox.shrink();
+    final htmlContent = _markdownToHtml(text);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -366,9 +367,34 @@ class _ReadingPaneState extends State<ReadingPane> {
           ),
         ]),
         const SizedBox(height: 8),
-        Text(text, style: TextStyle(fontSize: 14 * zoom, height: 1.5)),
+        Html(
+          data: htmlContent,
+          style: _htmlStyle(zoom, baseSize: 14),
+        ),
       ]),
     );
+  }
+
+  /// Convert basic Markdown to HTML for flutter_html rendering
+  String _markdownToHtml(String markdown) {
+    var html = markdown
+      .replaceAllMapped(RegExp(r'\*\*(.+?)\*\*'), (m) => '<strong>${m[1]}</strong>')
+      .replaceAllMapped(RegExp(r'\*(.+?)\*'), (m) => '<em>${m[1]}</em>')
+      .replaceAllMapped(RegExp(r'^#{1,6}\s+(.+)', multiLine: true), (m) => '<h3>${m[1]}</h3>')
+      .replaceAllMapped(RegExp(r'^\s*-\s+(.+)', multiLine: true), (m) => '<li>${m[1]}</li>')
+      .replaceAllMapped(RegExp(r'^\s*\d+\.\s+(.+)', multiLine: true), (m) => '<li>${m[1]}</li>');
+    
+    // Wrap bare li elements in ul
+    if (html.contains('<li>')) {
+      html = html.replaceAllMapped(
+        RegExp(r'(<li>.+?</li>\s*)+', dotAll: true),
+        (m) => '<ul>${m[0]}</ul>',
+      );
+    }
+    
+    // Wrap in body
+    html = html.replaceAll('\n', '<br>');
+    return '<div>$html</div>';
   }
 
   Widget _buildSummaryText(Article article, double zoom) {

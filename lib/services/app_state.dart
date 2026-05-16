@@ -29,6 +29,7 @@ class AppState extends ChangeNotifier {
   Article? _selectedArticle;
   ViewMode _currentView = ViewMode.unread;
   String? _selectedFeedId;
+  String? _selectedFolderName;
   bool _isLoading = false;
   String? _error;
   double _progress = 0.0;
@@ -44,6 +45,7 @@ class AppState extends ChangeNotifier {
   SortOrder _sortOrder = SortOrder.newest;
   int _readDaysLimit = 30;
   double _textZoom = 1.0;
+  int _aiBatchSize = 10;
   String? _feedbinUsername;
   String? _feedbinPassword;
 
@@ -59,6 +61,7 @@ class AppState extends ChangeNotifier {
   Article? get selectedArticle => _selectedArticle;
   ViewMode get currentView => _currentView;
   String? get selectedFeedId => _selectedFeedId;
+  String? get selectedFolderName => _selectedFolderName;
   bool get isLoading => _isLoading;
   String? get error => _error;
   double get progress => _progress;
@@ -75,6 +78,7 @@ class AppState extends ChangeNotifier {
   SortOrder get sortOrder => _sortOrder;
   int get readDaysLimit => _readDaysLimit;
   double get textZoom => _textZoom;
+  int get aiBatchSize => _aiBatchSize;
   LogService get logger => _logger;
   String? get feedbinUsername => _feedbinUsername;
   String? get feedbinPassword => _feedbinPassword;
@@ -193,13 +197,22 @@ class AppState extends ChangeNotifier {
   Future<void> setView(ViewMode view) async {
     _currentView = view;
     _selectedFeedId = null;
+    _selectedFolderName = null;
     await _loadArticlesForView();
     notifyListeners();
   }
 
   Future<void> selectFeed(String? feedId) async {
     _selectedFeedId = feedId;
+    _selectedFolderName = null;
     await _loadArticlesForView();
+    notifyListeners();
+  }
+
+  Future<void> selectFolder(String? folderName, List<String> feedIds) async {
+    _selectedFolderName = folderName;
+    _selectedFeedId = null;
+    await _loadArticlesForView(feedIds: feedIds);
     notifyListeners();
   }
 
@@ -219,20 +232,20 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _loadArticlesForView() async {
+  Future<void> _loadArticlesForView({List<String>? feedIds}) async {
     final feedId = _selectedFeedId;
     switch (_currentView) {
       case ViewMode.unread:
-        _articles = await _db.getArticles(isRead: false, feedId: feedId);
+        _articles = await _db.getArticles(isRead: false, feedId: feedId, feedIds: feedIds);
         break;
       case ViewMode.read:
-        _articles = await _db.getArticles(isRead: true, feedId: feedId);
+        _articles = await _db.getArticles(isRead: true, feedId: feedId, feedIds: feedIds);
         break;
       case ViewMode.favorites:
-        _articles = await _db.getArticles(isStarred: true, feedId: feedId);
+        _articles = await _db.getArticles(isStarred: true, feedId: feedId, feedIds: feedIds);
         break;
       case ViewMode.feeds:
-        _articles = await _db.getArticles(feedId: feedId);
+        _articles = await _db.getArticles(feedId: feedId, feedIds: feedIds);
         break;
       case ViewMode.stats:
         _articles = [];
@@ -381,6 +394,7 @@ class AppState extends ChangeNotifier {
         mergedMap[a.id] = a;
       }
       for (final a in starredArticles) {
+        a.isStarred = true; // Force starred flag since Feedbin API doesn't set it
         if (!mergedMap.containsKey(a.id)) {
           mergedMap[a.id] = a;
         } else {
@@ -399,6 +413,9 @@ class AppState extends ChangeNotifier {
       // Save to database
       await _db.insertArticles(filteredArticles);
 
+      // Update global counts from database
+      await _updateCounts();
+
       final totalCached = await _db.getTotalArticleCount();
       await _logger.info('Total cached articles: $totalCached');
 
@@ -411,6 +428,14 @@ class AppState extends ChangeNotifier {
       for (final feed in _feeds) {
         feed.unreadCount = feedUnreadCounts[feed.id] ?? 0;
         await _db.updateFeedUnreadCount(feed.id, feed.unreadCount);
+      }
+
+      // Update read and starred counts per feed from DB
+      final feedReadCounts = await _db.getAllFeedReadCounts();
+      final feedStarredCounts = await _db.getAllFeedStarredCounts();
+      for (final feed in _feeds) {
+        feed.readCount = feedReadCounts[feed.id] ?? 0;
+        feed.starredCount = feedStarredCounts[feed.id] ?? 0;
       }
 
       // Compute statistics
@@ -617,6 +642,49 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setAiBatchSize(int size) {
+    _aiBatchSize = size.clamp(1, 50);
+    saveSettings();
+    notifyListeners();
+  }
+
+  // AI Provider management
+  void addAiProvider(AIProvider provider) {
+    _aiProviders.add(provider);
+    if (_defaultProvider == null) {
+      _defaultProvider = provider;
+    }
+    saveSettings();
+    notifyListeners();
+  }
+
+  void updateAiProvider(String id, AIProvider updated) {
+    final index = _aiProviders.indexWhere((p) => p.id == id);
+    if (index != -1) {
+      _aiProviders[index] = updated;
+      if (_defaultProvider?.id == id) {
+        _defaultProvider = updated;
+      }
+      saveSettings();
+      notifyListeners();
+    }
+  }
+
+  void removeAiProvider(String id) {
+    _aiProviders.removeWhere((p) => p.id == id);
+    if (_defaultProvider?.id == id) {
+      _defaultProvider = _aiProviders.isNotEmpty ? _aiProviders.first : null;
+    }
+    saveSettings();
+    notifyListeners();
+  }
+
+  void setDefaultProvider(AIProvider? provider) {
+    _defaultProvider = provider;
+    saveSettings();
+    notifyListeners();
+  }
+
   Future<void> _pushPendingOperations() async {
     if (_apiClient == null) return;
     
@@ -627,12 +695,22 @@ class AppState extends ChangeNotifier {
     }
 
     await _logger.info('Pushing ${pending.length} pending operations to Feedbin');
-    final List<int> syncedIds = [];
-    final List<String> readIds = [];
-    final List<String> starIds = [];
-    final List<String> unstarIds = [];
-
+    
+    // Deduplicate: keep only the most recent operation per article per operation type
+    final seen = <String, Map<String, dynamic>>{};
     for (final op in pending) {
+      final key = '${op['article_id']}:${op['operation']}';
+      seen[key] = op;
+    }
+    final uniqueOps = seen.values.toList();
+    await _logger.info('Deduplicated to ${uniqueOps.length} unique operations');
+
+    final List<int> syncedIds = [];
+    final Set<String> readIds = {};
+    final Set<String> starIds = {};
+    final Set<String> unstarIds = {};
+
+    for (final op in uniqueOps) {
       final articleId = op['article_id'] as String;
       final operation = op['operation'] as String;
       switch (operation) {
@@ -652,8 +730,12 @@ class AppState extends ChangeNotifier {
     // Batch operations
     try {
       if (readIds.isNotEmpty) {
-        await _apiClient!.markAllAsRead(readIds);
-        await _logger.info('Synced ${readIds.length} mark-reads');
+        // Don't mark starred articles as read on Feedbin — preserve starred = unread semantics
+        final readToPush = readIds.where((id) => !starIds.contains(id)).toList();
+        if (readToPush.isNotEmpty) {
+          await _apiClient!.markAllAsRead(readToPush);
+          await _logger.info('Synced ${readToPush.length} mark-reads');
+        }
       }
       if (starIds.isNotEmpty) {
         for (final id in starIds) {
@@ -743,6 +825,7 @@ class AppState extends ChangeNotifier {
     _sortOrder = SortOrder.values[prefs.getInt('sortOrder') ?? 0];
     _readDaysLimit = prefs.getInt('readDaysLimit') ?? 7;
     _textZoom = prefs.getDouble('textZoom') ?? 1.0;
+    _aiBatchSize = prefs.getInt('aiBatchSize') ?? 10;
   }
 
   Future<void> saveSettings() async {
@@ -757,6 +840,7 @@ class AppState extends ChangeNotifier {
     await prefs.setInt('sortOrder', _sortOrder.index);
     await prefs.setInt('readDaysLimit', _readDaysLimit);
     await prefs.setDouble('textZoom', _textZoom);
+    await prefs.setInt('aiBatchSize', _aiBatchSize);
     await _logger.info('Settings saved');
   }
 
@@ -773,6 +857,7 @@ class AppState extends ChangeNotifier {
         provider: provider,
         title: article.title,
         content: article.contentText ?? article.contentHtml ?? '',
+        author: article.author,
       );
       await _logger.aiResponse(provider.name, provider.model, 'summarize', success: result != null);
       setLoading(false);
@@ -808,41 +893,34 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Smart Topic: summarize multiple unread articles together
+  /// Summarize multiple articles as a themed digest
   Future<String?> summarizeMultipleArticles(List<Article> articles, {String? customPrompt}) async {
     if (_defaultProvider == null || articles.isEmpty) return null;
     final provider = _defaultProvider!;
 
     setLoading(true, label: 'Analyzing ${articles.length} articles...', progress: 0.1);
-    await _logger.aiRequest(provider.name, provider.model, 'smart-topic-batch');
+    await _logger.aiRequest(provider.name, provider.model, 'batch-digest');
 
     try {
-      // Build combined prompt
-      final buffer = StringBuffer();
-      buffer.writeln('Summarize the key themes and important points from the following ${articles.length} articles:');
-      buffer.writeln();
-      for (int i = 0; i < articles.length; i++) {
-        buffer.writeln('--- Article ${i + 1}: ${articles[i].title} ---');
-        buffer.writeln(articles[i].contentText ?? articles[i].contentHtml ?? '');
-        buffer.writeln();
-      }
-
-      final combinedContent = buffer.toString().substring(0, buffer.length > 8000 ? 8000 : buffer.length);
+      final articleData = articles.map((a) => ({
+        'title': a.title,
+        'url': a.url ?? '',
+        'content': a.contentText ?? a.contentHtml ?? '',
+      })).toList();
 
       setLoading(true, label: 'Sending to AI...', progress: 0.5);
 
-      final result = await _aiService.summarizeArticle(
+      final result = await _aiService.summarizeBatch(
         provider: provider,
-        title: 'Summary of ${articles.length} articles',
-        content: combinedContent,
+        articles: articleData,
       );
 
-      await _logger.aiResponse(provider.name, provider.model, 'smart-topic-batch', success: result != null);
+      await _logger.aiResponse(provider.name, provider.model, 'batch-digest', success: result != null);
       setLoading(false);
       return result;
     } catch (e, st) {
-      await _logger.aiResponse(provider.name, provider.model, 'smart-topic-batch', success: false, error: e.toString());
-      await _logger.error('Smart topic summarization failed', error: e, stackTrace: st);
+      await _logger.aiResponse(provider.name, provider.model, 'batch-digest', success: false, error: e.toString());
+      await _logger.error('Batch summarization failed', error: e, stackTrace: st);
       setLoading(false);
       return null;
     }
@@ -915,6 +993,7 @@ class AppState extends ChangeNotifier {
       'sortOrder': _sortOrder.name,
       'readDaysLimit': _readDaysLimit,
       'textZoom': _textZoom,
+      'aiBatchSize': _aiBatchSize,
     };
   }
 
@@ -944,6 +1023,7 @@ class AppState extends ChangeNotifier {
     _sortOrder = SortOrder.values.byName(settings['sortOrder'] ?? 'newest');
     _readDaysLimit = settings['readDaysLimit'] ?? 7;
     _textZoom = settings['textZoom']?.toDouble() ?? 1.0;
+    _aiBatchSize = settings['aiBatchSize'] ?? 10;
 
     await saveSettings();
     notifyListeners();

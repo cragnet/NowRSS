@@ -60,7 +60,7 @@ class ArticleList extends StatelessWidget {
                   const Spacer(),
                   IconButton(
                     icon: const Icon(Icons.auto_awesome),
-                    tooltip: 'AI Summarize All Unread',
+                    tooltip: 'AI Summarize Unread Articles',
                     onPressed: () {
                       final unread = appState.articles.where((a) => !a.isRead).toList();
                       if (unread.isEmpty) {
@@ -71,7 +71,7 @@ class ArticleList extends StatelessWidget {
                       }
                       showDialog(
                         context: context,
-                        builder: (_) => BatchDialog(articles: appState.articles),
+                        builder: (_) => BatchDialog(articles: unread),
                       );
                     },
                   ),
@@ -269,11 +269,7 @@ class _ArticleCardState extends State<_ArticleCard> {
                   children: [
                     Row(
                       children: [
-                        CircleAvatar(
-                          radius: 10,
-                          backgroundColor: Colors.grey[300],
-                          child: const Icon(Icons.rss_feed, size: 12),
-                        ),
+                        _buildFavicon(appState, widget.article.feedId, size: 20),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -347,6 +343,40 @@ class _ArticleCardState extends State<_ArticleCard> {
         );
       },
     );
+  }
+
+  Widget _buildFavicon(AppState appState, String feedId, {double size = 20}) {
+    final url = _getFeedFaviconUrl(appState, feedId);
+    if (url == null || url.isEmpty) {
+      return CircleAvatar(
+        radius: size / 2,
+        backgroundColor: Colors.grey[300],
+        child: Icon(Icons.rss_feed, size: size * 0.6),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size / 4),
+      child: Image.network(
+        url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => CircleAvatar(
+          radius: size / 2,
+          backgroundColor: Colors.grey[300],
+          child: Icon(Icons.rss_feed, size: size * 0.6),
+        ),
+      ),
+    );
+  }
+
+  String? _getFeedFaviconUrl(AppState appState, String feedId) {
+    try {
+      final feed = appState.feeds.firstWhere((f) => f.id == feedId);
+      return feed.faviconUrl;
+    } catch (_) {
+      return null;
+    }
   }
 
   String _getFeedTitle(AppState appState, String feedId) {

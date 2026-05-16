@@ -44,53 +44,49 @@ class StatsScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              // Scrollable table with scrollbar
+              // Scrollable table
               Expanded(
-                child: Scrollbar(
-                  thumbVisibility: true,
-                  trackVisibility: true,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
                   child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.vertical,
-                      child: DataTable(
-                        sortColumnIndex: 4,
-                        sortAscending: false,
-                        columns: const [
-                          DataColumn(label: Text('Feed')),
-                          DataColumn(label: Text('Folder'), numeric: false),
-                          DataColumn(label: Text('1h'), numeric: true),
-                          DataColumn(label: Text('24h'), numeric: true),
-                          DataColumn(label: Text('7d'), numeric: true),
-                          DataColumn(label: Text('30d'), numeric: true),
-                          DataColumn(label: Text('Total'), numeric: true),
-                          DataColumn(label: Text('Freq/day'), numeric: true),
-                          DataColumn(label: Text('Unread'), numeric: true),
-                          DataColumn(label: Text('7d Sparkline'), numeric: false),
+                    scrollDirection: Axis.vertical,
+                    child: DataTable(
+                      sortColumnIndex: 4,
+                      sortAscending: false,
+                      columns: const [
+                        DataColumn(label: Text('Feed')),
+                        DataColumn(label: Text('Folder'), numeric: false),
+                        DataColumn(label: Text('1h'), numeric: true),
+                        DataColumn(label: Text('24h'), numeric: true),
+                        DataColumn(label: Text('7d'), numeric: true),
+                        DataColumn(label: Text('30d'), numeric: true),
+                        DataColumn(label: Text('Total'), numeric: true),
+                        DataColumn(label: Text('Freq/day'), numeric: true),
+                        DataColumn(label: Text('Unread'), numeric: true),
+                        DataColumn(label: Text('7d Sparkline'), numeric: false),
+                      ],
+                      rows: sorted.map((s) => DataRow(
+                        cells: [
+                          DataCell(Text(s.feedTitle, style: const TextStyle(fontWeight: FontWeight.w500))),
+                          DataCell(Text(s.folderName ?? '-', style: TextStyle(color: Colors.grey[600], fontSize: 12))),
+                          DataCell(Text('${s.lastHour}', style: TextStyle(color: s.lastHour > 0 ? Colors.red : Colors.grey))),
+                          DataCell(Text('${s.lastDay}', style: TextStyle(color: s.lastDay > 0 ? Colors.orange : Colors.grey))),
+                          DataCell(Text('${s.last7Days}', style: TextStyle(color: s.last7Days > 0 ? Colors.blue : Colors.grey, fontWeight: FontWeight.bold))),
+                          DataCell(Text('${s.last30Days}')),
+                          DataCell(Text('${s.totalArticles}')),
+                          DataCell(Text(s.frequency.toStringAsFixed(1))),
+                          DataCell(
+                            s.unreadCount > 0
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.blue, borderRadius: BorderRadius.circular(10)),
+                                  child: Text('${s.unreadCount}', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                )
+                              : const Text('0', style: TextStyle(color: Colors.grey)),
+                          ),
+                          DataCell(_Sparkline(data: s.dailyDistribution, width: 80, height: 24)),
                         ],
-                        rows: sorted.map((s) => DataRow(
-                          cells: [
-                            DataCell(Text(s.feedTitle, style: const TextStyle(fontWeight: FontWeight.w500))),
-                            DataCell(Text(s.folderName ?? '-', style: TextStyle(color: Colors.grey[600], fontSize: 12))),
-                            DataCell(Text('${s.lastHour}', style: TextStyle(color: s.lastHour > 0 ? Colors.red : Colors.grey))),
-                            DataCell(Text('${s.lastDay}', style: TextStyle(color: s.lastDay > 0 ? Colors.orange : Colors.grey))),
-                            DataCell(Text('${s.last7Days}', style: TextStyle(color: s.last7Days > 0 ? Colors.blue : Colors.grey, fontWeight: FontWeight.bold))),
-                            DataCell(Text('${s.last30Days}')),
-                            DataCell(Text('${s.totalArticles}')),
-                            DataCell(Text(s.frequency.toStringAsFixed(1))),
-                            DataCell(
-                              s.unreadCount > 0
-                                ? Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(color: Colors.blue, borderRadius: BorderRadius.circular(10)),
-                                    child: Text('${s.unreadCount}', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                                  )
-                                : const Text('0', style: TextStyle(color: Colors.grey)),
-                            ),
-                            DataCell(_Sparkline(data: s.dailyDistribution, width: 80, height: 24)),
-                          ],
-                        )).toList(),
-                      ),
+                      )).toList(),
                     ),
                   ),
                 ),
