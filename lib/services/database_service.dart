@@ -496,6 +496,23 @@ class DatabaseService {
     );
   }
 
+  Future<void> purgeArticlesNotIn(List<String> keepIds) async {
+    final db = await database;
+    if (keepIds.isEmpty) {
+      await db.delete('articles');
+      return;
+    }
+    // Build placeholders for the IN clause
+    final placeholders = List.filled(keepIds.length, '?').join(',');
+    final deleted = await db.rawDelete(
+      'DELETE FROM articles WHERE id NOT IN ($placeholders)',
+      keepIds,
+    );
+    if (deleted > 0) {
+      print('Purged $deleted old articles');
+    }
+  }
+
   Future<void> close() async {
     final db = await database;
     await db.close();

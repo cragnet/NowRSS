@@ -362,6 +362,17 @@ class AppState extends ChangeNotifier {
       final starredArticles = await _apiClient!.getStarredEntries();
       await _logger.info('Fetched ${starredArticles.length} starred articles');
 
+      // Build merged set of IDs to keep
+      final idsToKeep = <String>{...unreadArticles.map((a) => a.id), ...starredArticles.map((a) => a.id)};
+
+      // Purge old articles that are no longer in Feedbin's unread or starred lists
+      final totalBefore = await _db.getTotalArticleCount();
+      await _db.purgeArticlesNotIn(idsToKeep.toList());
+      final totalAfterPurge = await _db.getTotalArticleCount();
+      if (totalBefore != totalAfterPurge) {
+        await _logger.info('Purged ${totalBefore - totalAfterPurge} old articles not in current sync');
+      }
+
       // Merge: Feedbin authoritative read/starred flags
       final mergedMap = <String, Article>{};
       for (final a in unreadArticles) {
@@ -371,7 +382,6 @@ class AppState extends ChangeNotifier {
         if (!mergedMap.containsKey(a.id)) {
           mergedMap[a.id] = a;
         } else {
-          // Both unread and starred: keep unread's isRead=false, set isStarred=true
           mergedMap[a.id]!.isStarred = true;
         }
       }
