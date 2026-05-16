@@ -1,0 +1,60 @@
+name: Build Linux Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.5'
+        channel: 'stable'
+    
+    - name: Install Linux dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgtk-4-dev \
+          libadwaita-1-dev \
+          ninja-build \
+          pkg-config \
+          build-essential \
+          cmake
+    
+    - name: Get dependencies
+      run: flutter pub get
+    
+    - name: Build Linux release
+      run: flutter build linux --release
+    
+    - name: Package release
+      run: |
+        cd build/linux/x64/release/bundle
+        tar -czf ../../../../../../nowrss-linux-x64.tar.gz .
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: nowrss-linux-x64
+        path: nowrss-linux-x64.tar.gz
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: nowrss-linux-x64.tar.gz
+        generate_release_notes: true
+        body_path: CHANGELOG.md
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
