@@ -54,7 +54,7 @@ class Article {
 
   static String? _extractImage(String? html) {
     if (html == null) return null;
-    final match = RegExp(r'<img[^>]+src=["\']([^"\']+)["\']').firstMatch(html);
+    final match = RegExp(r"""<img[^>]+src=["']([^"']+)["']""").firstMatch(html);
     return match?.group(1);
   }
 }
