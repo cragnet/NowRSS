@@ -352,26 +352,26 @@ class AppState extends ChangeNotifier {
       _feeds = feeds;
       await _logger.info('Fetched ${feeds.length} feeds with metadata');
 
-      // Fetch recent entries (last N days) — Feedbin returns these with correct read/starred flags
-      setLoading(true, label: 'Fetching recent entries...', progress: 0.4);
-      final recentArticles = await _apiClient!.getRecentEntries(days: _readDaysLimit);
-      await _logger.info('Fetched ${recentArticles.length} recent entries (${_readDaysLimit}d window)');
+      // Fetch unread entries (Feedbin returns full entries with isRead=false)
+      setLoading(true, label: 'Fetching unread articles...', progress: 0.4);
+      final unreadArticles = await _apiClient!.getUnreadEntries();
+      await _logger.info('Fetched ${unreadArticles.length} unread articles');
 
-      // Fetch starred entries (ensures favorites outside recent window are included)
-      setLoading(true, label: 'Fetching starred entries...', progress: 0.55);
+      // Fetch starred entries (Feedbin returns full entries with correct read/starred flags)
+      setLoading(true, label: 'Fetching starred articles...', progress: 0.55);
       final starredArticles = await _apiClient!.getStarredEntries();
       await _logger.info('Fetched ${starredArticles.length} starred articles');
 
-      // Merge: recent entries win (Feedbin has authoritative read/starred state),
-      // starred-only fill in gaps for articles outside the recent window.
+      // Merge: Feedbin authoritative read/starred flags
       final mergedMap = <String, Article>{};
-      for (final a in recentArticles) {
+      for (final a in unreadArticles) {
         mergedMap[a.id] = a;
       }
       for (final a in starredArticles) {
         if (!mergedMap.containsKey(a.id)) {
           mergedMap[a.id] = a;
         } else {
+          // Both unread and starred: keep unread's isRead=false, set isStarred=true
           mergedMap[a.id]!.isStarred = true;
         }
       }
@@ -380,19 +380,15 @@ class AppState extends ChangeNotifier {
       // Apply keyword filters
       setLoading(true, label: 'Applying filters...', progress: 0.7);
       final filteredArticles = _applyKeywordFilters(articles);
-      final autoMarked = articles.length - filteredArticles.where((a) => !a.isRead).length;
-      if (autoMarked > 0) {
-        await _logger.info('Auto-marked $autoMarked articles as read via keyword filters');
-      }
 
-      // Cache articles (merge with existing cached_html / summary)
+      // Preserve locally cached HTML / summaries
       await _preserveCachedFields(filteredArticles);
+
+      // Save to database
       await _db.insertArticles(filteredArticles);
 
-      // Enforce 10,000 article cache limit
-      await _db.enforceArticleLimit(10000);
       final totalCached = await _db.getTotalArticleCount();
-      await _logger.info('Total cached articles: $totalCached (limit: 10000)');
+      await _logger.info('Total cached articles: $totalCached');
 
       // Push pending local operations to Feedbin
       setLoading(true, label: 'Syncing local changes...', progress: 0.85);

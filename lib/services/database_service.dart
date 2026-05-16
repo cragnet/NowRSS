@@ -249,7 +249,7 @@ class DatabaseService {
     bool? isRead,
     bool? isStarred,
     String? feedId,
-    int limit = 500,
+    int limit = 5000,
     int offset = 0,
   }) async {
     final db = await database;
