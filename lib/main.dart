@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'screens/main_screen.dart';
 import 'services/app_state.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
   runApp(
     ChangeNotifierProvider(
       create: (_) => AppState(),
