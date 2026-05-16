@@ -42,7 +42,7 @@ class AppState extends ChangeNotifier {
   bool _markReadOnScroll = true;
   bool _syncOnStartup = true;
   SortOrder _sortOrder = SortOrder.newest;
-  int _readDaysLimit = 7;
+  int _readDaysLimit = 30;
   double _textZoom = 1.0;
   String? _feedbinUsername;
   String? _feedbinPassword;
@@ -190,16 +190,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setView(ViewMode view) {
+  Future<void> setView(ViewMode view) async {
     _currentView = view;
     _selectedFeedId = null;
-    _loadArticlesForView();
+    await _loadArticlesForView();
     notifyListeners();
   }
 
-  void selectFeed(String? feedId) {
+  Future<void> selectFeed(String? feedId) async {
     _selectedFeedId = feedId;
-    _loadArticlesForView();
+    await _loadArticlesForView();
     notifyListeners();
   }
 

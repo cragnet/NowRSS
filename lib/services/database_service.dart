@@ -437,14 +437,17 @@ class DatabaseService {
     if (total <= limit) return;
 
     final toDelete = total - limit;
+    // Keep unread, starred, and articles from last 90 days.
+    // Delete oldest read articles first.
     await db.rawDelete('''
       DELETE FROM articles WHERE id IN (
         SELECT id FROM articles 
         WHERE is_read = 1 AND is_starred = 0
+          AND published_at < ?
         ORDER BY published_at ASC, fetched_at ASC
         LIMIT ?
       )
-    ''', [toDelete]);
+    ''', [DateTime.now().subtract(const Duration(days: 90)).millisecondsSinceEpoch, toDelete]);
   }
 
   // Sync log
