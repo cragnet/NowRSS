@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import '../services/app_state.dart';
 import '../models/ai_provider.dart';
 
@@ -442,6 +441,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _exportSettingsToFile(BuildContext context, AppState appState) async {
+    // Step 1: Ask whether to include API keys
     final includeKey = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -455,13 +455,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-
     if (includeKey == null) return;
 
+    // Step 2: Pick folder
+    String? folderPath;
     try {
-      final file = await appState.exportSettingsToFile(includeApiKey: includeKey);
+      folderPath = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Select folder to save settings file',
+      );
+    } catch (e) {
+      // Fallback: use home directory
+      folderPath = Platform.environment['HOME'] ?? '/home/${Platform.environment["USER"] ?? "user"}';
+    }
+
+    if (folderPath == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Settings saved to: ${file.path}')),
+        const SnackBar(content: Text('No folder selected')),
+      );
+      return;
+    }
+
+    // Step 3: Ask for filename
+    final fileNameController = TextEditingController(
+      text: 'nowrss_settings_${DateTime.now().toIso8601String().split("T").first}.json',
+    );
+
+    final fileName = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Save As'),
+        content: TextField(
+          controller: fileNameController,
+          decoration: const InputDecoration(
+            labelText: 'Filename',
+            suffixText: '.json',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, fileNameController.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (fileName == null || fileName.isEmpty) return;
+
+    // Ensure .json extension
+    final safeFileName = fileName.endsWith('.json') ? fileName : '$fileName.json';
+    final fullPath = '$folderPath/$safeFileName';
+
+    try {
+      final file = File(fullPath);
+      final settings = appState.exportSettings(includeApiKey: includeKey);
+      final json = const JsonEncoder.withIndent('  ').convert(settings);
+      await file.writeAsString(json);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Settings saved to: $fullPath')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -475,13 +528,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
+        dialogTitle: 'Select a NowRSS settings JSON file to import',
+        allowMultiple: false,
       );
-      if (result == null || result.files.single.path == null) return;
+      if (result == null || result.files.single.path == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No file selected')),
+        );
+        return;
+      }
 
-      final file = File(result.files.single.path!);
+      final filePath = result.files.single.path!;
+      final fileName = result.files.single.name;
+
+      // Show confirmation dialog with file details
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Import Settings?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('File: $fileName'),
+              const SizedBox(height: 8),
+              Text(
+                'Path: $filePath',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'This will overwrite your current settings, including Feedbin credentials and AI providers.',
+                style: TextStyle(color: Colors.orange),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Import'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
+      final file = File(filePath);
       await appState.importSettingsFromFile(file);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Settings imported successfully')),
+        SnackBar(content: Text('Settings imported from: $filePath')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
