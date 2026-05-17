@@ -365,10 +365,10 @@ class AppState extends ChangeNotifier {
       _feeds = feeds;
       await _logger.info('Fetched ${feeds.length} feeds with metadata');
 
-      // Fetch entries from last 180 days (reaches Nov 2024)
-      setLoading(true, label: 'Fetching recent entries (6 months)...', progress: 0.3);
-      final recentArticles = await _apiClient!.getRecentEntries(days: 180);
-      await _logger.info('Fetched ${recentArticles.length} recent entries (180d window)');
+      // Fetch entries from last 30 days only for speed
+      setLoading(true, label: 'Fetching recent entries (30 days)...', progress: 0.3);
+      final recentArticles = await _apiClient!.getRecentEntries(days: 30);
+      await _logger.info('Fetched ${recentArticles.length} recent entries (30d window)');
 
       // Fetch unread IDs (lightweight list)
       setLoading(true, label: 'Fetching unread list...', progress: 0.5);
@@ -933,6 +933,31 @@ class AppState extends ChangeNotifier {
         articles: articleData,
       );
 
+      await _logger.aiResponse(provider.name, provider.model, 'batch-digest', success: result != null);
+      setLoading(false);
+      return result;
+    } catch (e, st) {
+      await _logger.aiResponse(provider.name, provider.model, 'batch-digest', success: false, error: e.toString());
+      await _logger.error('Batch summarization failed', error: e, stackTrace: st);
+      setLoading(false);
+      return null;
+    }
+  }
+
+  /// Summarize multiple articles as a themed digest (pre-prepared data for full-content mode)
+  Future<String?> summarizeMultipleArticlesWithData(List<Map<String, String>> articleData, {String? customPrompt}) async {
+    if (_defaultProvider == null || articleData.isEmpty) return null;
+    final provider = _defaultProvider!;
+
+    setLoading(true, label: 'Analyzing ${articleData.length} articles...', progress: 0.1);
+    await _logger.aiRequest(provider.name, provider.model, 'batch-digest');
+
+    try {
+      setLoading(true, label: 'Sending to AI...', progress: 0.5);
+      final result = await _aiService.summarizeBatch(
+        provider: provider,
+        articles: articleData,
+      );
       await _logger.aiResponse(provider.name, provider.model, 'batch-digest', success: result != null);
       setLoading(false);
       return result;

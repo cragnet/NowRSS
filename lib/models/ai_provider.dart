@@ -41,9 +41,9 @@ Summary:''',
     this.batchSummaryPrompt = '''You are a news digest curator. Summarize a collection of articles for a busy reader.
 
 INPUT FORMAT:
-You will receive multiple articles. For each article provide:
-1. Title
-2. One sentence capturing the main point
+You will receive multiple articles drawn from full article text. For each article provide:
+1. Title with source
+2. One substantive sentence capturing the main point (NOT a generic RSS teaser)
 3. A numbered link reference [N]
 
 GROUPING:
@@ -60,7 +60,11 @@ OUTPUT FORMAT:
 - [3] Standalone Title — One sentence summary
 
 ## Overview Synopsis
-2-3 sentences summarizing the overall themes and key takeaways from all articles.
+A concise, opinionated analysis (200+ words) covering:
+- The overarching narrative and key themes across articles
+- Notable trends or surprising developments
+- Potential implications or critical questions raised
+- A brief, balanced editorial perspective on the collection's significance
 
 Articles:
 {articles}

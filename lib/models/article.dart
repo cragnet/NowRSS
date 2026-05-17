@@ -12,6 +12,7 @@ class Article {
   final String? imageUrl;
   bool isRead;
   bool isStarred;
+  String? feedTitle; // Transient: populated via DB JOIN
 
   Article({
     required this.id,
@@ -27,6 +28,7 @@ class Article {
     this.imageUrl,
     this.isRead = false,
     this.isStarred = false,
+    this.feedTitle,
   });
 
   factory Article.fromFeedbinJson(Map<String, dynamic> json) {

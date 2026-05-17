@@ -273,7 +273,7 @@ class _ArticleCardState extends State<_ArticleCard> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            _getFeedTitle(appState, widget.article.feedId),
+                            widget.article.feedTitle ?? 'Unknown Feed',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey[600],

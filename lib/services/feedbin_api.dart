@@ -156,7 +156,7 @@ class FeedbinApiClient {
     int page = 1;
 
     try {
-      while (allArticles.length < 5000) {
+      while (allArticles.length < 1000) {
         final url = '$baseUrl/v2/entries.json?since=$since&per_page=100&page=$page';
         final response = await http.get(
           Uri.parse(url),

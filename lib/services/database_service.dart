@@ -254,35 +254,35 @@ class DatabaseService {
     int offset = 0,
   }) async {
     final db = await database;
-    
+
     String where = '1=1';
     List<dynamic> whereArgs = [];
-    
+
     if (isRead != null) {
-      where += ' AND is_read = ?';
+      where += ' AND a.is_read = ?';
       whereArgs.add(isRead ? 1 : 0);
     }
     if (isStarred != null) {
-      where += ' AND is_starred = ?';
+      where += ' AND a.is_starred = ?';
       whereArgs.add(isStarred ? 1 : 0);
     }
     if (feedId != null) {
-      where += ' AND feed_id = ?';
+      where += ' AND a.feed_id = ?';
       whereArgs.add(feedId);
     }
     if (feedIds != null && feedIds.isNotEmpty) {
-      where += ' AND feed_id IN (${List.filled(feedIds.length, '?').join(',')})';
+      where += ' AND a.feed_id IN (${List.filled(feedIds.length, '?').join(',')})';
       whereArgs.addAll(feedIds);
     }
-    
-    final List<Map> maps = await db.query(
-      'articles',
-      where: where,
-      whereArgs: whereArgs,
-      orderBy: 'published_at DESC',
-      limit: limit,
-      offset: offset,
-    );
+
+    final List<Map> maps = await db.rawQuery('''
+      SELECT a.*, COALESCE(f.title, 'Unknown Feed') as feed_title
+      FROM articles a
+      LEFT JOIN feeds f ON a.feed_id = f.id
+      WHERE $where
+      ORDER BY a.published_at DESC
+      LIMIT ? OFFSET ?
+    ''', [...whereArgs, limit, offset]);
     return maps.map((map) => _mapToArticle(map)).toList();
   }
 
@@ -528,6 +528,7 @@ class DatabaseService {
       imageUrl: map['image_url'] as String?,
       isRead: (map['is_read'] as int? ?? 0) == 1,
       isStarred: (map['is_starred'] as int? ?? 0) == 1,
+      feedTitle: map['feed_title'] as String?,
     );
   }
 

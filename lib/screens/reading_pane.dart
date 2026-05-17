@@ -313,6 +313,29 @@ class _ReadingPaneState extends State<ReadingPane> {
     };
   }
 
+  /// Style used inside the summary card, explicitly using theme text colours.
+  Map<String, Style> _summaryHtmlStyle(BuildContext context, double zoom, {double baseSize = 14}) {
+    final s = baseSize * zoom;
+    final cs = Theme.of(context).colorScheme;
+    return {
+      "body": Style(fontSize: FontSize(s), lineHeight: LineHeight(1.6), margin: Margins.zero, color: cs.onSecondaryContainer),
+      "p": Style(margin: Margins.only(bottom: 12), lineHeight: LineHeight(1.6), color: cs.onSecondaryContainer),
+      "div": Style(margin: Margins.only(bottom: 8), color: cs.onSecondaryContainer),
+      "h1": Style(fontSize: FontSize(s * 1.6), fontWeight: FontWeight.bold, margin: Margins.only(top: 16, bottom: 8), color: cs.onSecondaryContainer),
+      "h2": Style(fontSize: FontSize(s * 1.4), fontWeight: FontWeight.bold, margin: Margins.only(top: 14, bottom: 6), color: cs.onSecondaryContainer),
+      "h3": Style(fontSize: FontSize(s * 1.2), fontWeight: FontWeight.bold, margin: Margins.only(top: 12, bottom: 4), color: cs.onSecondaryContainer),
+      "h4": Style(fontSize: FontSize(s * 1.1), fontWeight: FontWeight.bold, margin: Margins.only(top: 10, bottom: 4), color: cs.onSecondaryContainer),
+      "h5": Style(fontSize: FontSize(s), fontWeight: FontWeight.bold, margin: Margins.only(top: 8, bottom: 2), color: cs.onSecondaryContainer),
+      "h6": Style(fontSize: FontSize(s), fontWeight: FontWeight.bold, margin: Margins.only(top: 8, bottom: 2), color: cs.onSecondaryContainer),
+      "ul": Style(margin: Margins.only(bottom: 12, left: 16), color: cs.onSecondaryContainer),
+      "ol": Style(margin: Margins.only(bottom: 12, left: 16), color: cs.onSecondaryContainer),
+      "li": Style(margin: Margins.only(bottom: 4), lineHeight: LineHeight(1.5), color: cs.onSecondaryContainer),
+      "a": Style(color: cs.primary, textDecoration: TextDecoration.none),
+      "strong": Style(fontWeight: FontWeight.bold, color: cs.onSecondaryContainer),
+      "em": Style(fontStyle: FontStyle.italic, color: cs.onSecondaryContainer),
+    };
+  }
+
   Widget _buildTitle(String title, double zoom) {
     return Text(
       title,
@@ -342,36 +365,40 @@ class _ReadingPaneState extends State<ReadingPane> {
     final text = _summary ?? article.summary;
     if (text == null || text.isEmpty) return const SizedBox.shrink();
     final htmlContent = _markdownToHtml(text);
+    final cs = Theme.of(context).colorScheme;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F0E8),
+        color: cs.secondaryContainer,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE0D5C0)),
+        border: Border.all(color: cs.outlineVariant),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Icon(Icons.auto_awesome, size: 16, color: Colors.amber),
-          const SizedBox(width: 8),
-          Text('AI Summary', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.copy, size: 16),
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: text));
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Summary copied')));
-            },
-            tooltip: 'Copy summary',
+      child: DefaultTextStyle(
+        style: TextStyle(color: cs.onSecondaryContainer),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.auto_awesome, size: 16, color: Colors.amber),
+            const SizedBox(width: 8),
+            Text('AI Summary', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+            const Spacer(),
+            IconButton(
+              icon: const Icon(Icons.copy, size: 16),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: text));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Summary copied')));
+              },
+              tooltip: 'Copy summary',
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Html(
+            data: htmlContent,
+            style: _summaryHtmlStyle(context, zoom, baseSize: 14),
           ),
         ]),
-        const SizedBox(height: 8),
-        Html(
-          data: htmlContent,
-          style: _htmlStyle(zoom, baseSize: 14),
-        ),
-      ]),
+      ),
     );
   }
 
