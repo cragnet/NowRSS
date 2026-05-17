@@ -807,9 +807,27 @@ class AppState extends ChangeNotifier {
         id: 'default',
         name: 'Ollama Cloud',
         type: 'ollama',
-        baseUrl: 'https://api.ollama.com/v1',
-        model: 'llama3.2',
+        baseUrl: 'https://ollama.com/v1',
+        model: 'deepseek-v3.1:671b-cloud',
       ));
+    } else {
+      // Migrate old api.ollama.com domain to ollama.com
+      for (int i = 0; i < _aiProviders.length; i++) {
+        final p = _aiProviders[i];
+        if (p.baseUrl.contains('api.ollama.com')) {
+          _aiProviders[i] = AIProvider(
+            id: p.id,
+            name: p.name,
+            type: p.type,
+            baseUrl: p.baseUrl.replaceFirst('api.ollama.com', 'ollama.com'),
+            apiKey: p.apiKey,
+            model: p.model,
+            summaryPrompt: p.summaryPrompt,
+            articleSummaryPrompt: p.articleSummaryPrompt,
+            batchSummaryPrompt: p.batchSummaryPrompt,
+          );
+        }
+      }
     }
 
     _defaultProvider = _aiProviders.firstWhere(

@@ -51,6 +51,13 @@ class StatsScreen extends StatelessWidget {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.vertical,
                     child: DataTable(
+                      showCheckboxColumn: false,
+                      headingRowHeight: 40,
+                      dataRowMinHeight: 36,
+                      dataRowMaxHeight: 40,
+                      horizontalMargin: 12,
+                      columnSpacing: 16,
+                      dividerThickness: 0.5,
                       sortColumnIndex: 4,
                       sortAscending: false,
                       columns: const [
@@ -67,8 +74,28 @@ class StatsScreen extends StatelessWidget {
                       ],
                       rows: sorted.map((s) => DataRow(
                         cells: [
-                          DataCell(Text(s.feedTitle, style: const TextStyle(fontWeight: FontWeight.w500))),
-                          DataCell(Text(s.folderName ?? '-', style: TextStyle(color: Colors.grey[600], fontSize: 12))),
+                          DataCell(
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 180),
+                              child: Text(
+                                s.feedTitle,
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                                style: const TextStyle(fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 100),
+                              child: Text(
+                                s.folderName ?? '-',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                              ),
+                            ),
+                          ),
                           DataCell(Text('${s.lastHour}', style: TextStyle(color: s.lastHour > 0 ? Colors.red : Colors.grey))),
                           DataCell(Text('${s.lastDay}', style: TextStyle(color: s.lastDay > 0 ? Colors.orange : Colors.grey))),
                           DataCell(Text('${s.last7Days}', style: TextStyle(color: s.last7Days > 0 ? Colors.blue : Colors.grey, fontWeight: FontWeight.bold))),
@@ -84,7 +111,7 @@ class StatsScreen extends StatelessWidget {
                                 )
                               : const Text('0', style: TextStyle(color: Colors.grey)),
                           ),
-                          DataCell(_Sparkline(data: s.dailyDistribution, width: 80, height: 24)),
+                          DataCell(_Sparkline(data: s.dailyDistribution, width: 60, height: 20)),
                         ],
                       )).toList(),
                     ),

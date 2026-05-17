@@ -44,10 +44,17 @@ class _BatchDialogState extends State<BatchDialog> {
     try {
       final result = await appState.summarizeMultipleArticles(toSummarize);
       if (mounted) {
-        setState(() {
-          _isRunning = false;
-          _result = result;
-        });
+        if (result == null || result.isEmpty) {
+          setState(() {
+            _isRunning = false;
+            _error = 'Failed to generate digest. Check your AI provider settings and API key.';
+          });
+        } else {
+          setState(() {
+            _isRunning = false;
+            _result = result;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {

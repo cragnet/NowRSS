@@ -64,7 +64,15 @@ class AIProviderService {
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final data = jsonDecode(response.body);
-        return isLocal ? data['response'] : data['choices']?[0]?['message']?['content'];
+        // Ollama local returns {response: ...}
+        if (isLocal) {
+          return data['response'];
+        }
+        // /v1 endpoints (Ollama Cloud, OpenAI) return {choices:[{message:{content}}]}
+        final content = data['choices']?[0]?['message']?['content'];
+        if (content != null) return content;
+        // Ollama native /api/chat returns {message:{content}}
+        return data['message']?['content'];
       }
 
       throw Exception('AI API error ${response.statusCode}: ${response.body}');
@@ -126,9 +134,14 @@ class AIProviderService {
         body: jsonEncode(body),
       ).timeout(const Duration(seconds: 120));
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         final data = jsonDecode(response.body);
-        return isLocal ? data['response'] : data['choices']?[0]?['message']?['content'];
+        if (isLocal) {
+          return data['response'];
+        }
+        final content = data['choices']?[0]?['message']?['content'];
+        if (content != null) return content;
+        return data['message']?['content'];
       }
 
       throw Exception('AI batch API error ${response.statusCode}: ${response.body}');
@@ -177,18 +190,17 @@ class AIProviderService {
         body: jsonEncode(body),
       ).timeout(const Duration(seconds: 60));
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         final data = jsonDecode(response.body);
-
         if (isLocal) {
           return data['response'];
-        } else {
-          return data['choices']?[0]?['message']?['content'];
         }
+        final content = data['choices']?[0]?['message']?['content'];
+        if (content != null) return content;
+        return data['message']?['content'];
       }
 
-      _logger.e('Translation API error: ${response.statusCode} - ${response.body}');
-      return null;
+      throw Exception('Translation API error ${response.statusCode}: ${response.body}');
     } catch (e) {
       _logger.e('Translation error', error: e);
       return null;
