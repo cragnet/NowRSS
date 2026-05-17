@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- AI summaries failing for Ollama Cloud providers because the code always used the native `/api/generate` endpoint for any `type == 'ollama'`. Now correctly routes `/v1` base URLs to `/chat/completions` (OpenAI-compatible) and only uses `/api/generate` for local Ollama instances.
+- Added HTTP timeouts (60 s single article / 120 s batch) and improved error propagation so AI failures surface the actual HTTP status and body in logs.
+
 ## [0.2.1] - 2026-05-16
 
 ### Added

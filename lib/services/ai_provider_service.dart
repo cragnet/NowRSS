@@ -1,12 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
 import '../models/ai_provider.dart';
 
 class AIProviderService {
   final Logger _logger = Logger();
-  
+
+  /// Whether this provider should use the Ollama native /api/generate endpoint.
+  /// Local Ollama (e.g. http://localhost:11434) uses /api/generate.
+  /// Anything ending in /v1 (Ollama Cloud, OpenAI, etc.) uses /chat/completions.
+  bool _isOllamaLocal(AIProvider provider) {
+    return provider.type == 'ollama' && !provider.baseUrl.trim().endsWith('/v1');
+  }
+
   Future<String?> summarizeArticle({
     required AIProvider provider,
     required String title,
@@ -19,7 +26,9 @@ class AIProviderService {
           .replaceAll('{author}', author ?? 'Unknown')
           .replaceAll('{content}', content.substring(0, content.length > 6000 ? 6000 : content.length));
 
-      final body = provider.type == 'ollama'
+      final isLocal = _isOllamaLocal(provider);
+
+      final body = isLocal
           ? {
               'model': provider.model,
               'prompt': prompt,
@@ -34,7 +43,7 @@ class AIProviderService {
               'stream': false,
             };
 
-      final endpoint = provider.type == 'ollama'
+      final endpoint = isLocal
           ? '${provider.baseUrl}/api/generate'
           : '${provider.baseUrl}/chat/completions';
 
@@ -49,20 +58,16 @@ class AIProviderService {
         Uri.parse(endpoint),
         headers: headers,
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 60), onTimeout: () {
+        throw TimeoutException('Request timed out after 60s');
+      });
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         final data = jsonDecode(response.body);
-        
-        if (provider.type == 'ollama') {
-          return data['response'];
-        } else {
-          return data['choices']?[0]?['message']?['content'];
-        }
+        return isLocal ? data['response'] : data['choices']?[0]?['message']?['content'];
       }
-      
-      _logger.e('AI API error: ${response.statusCode} - ${response.body}');
-      return null;
+
+      throw Exception('AI API error ${response.statusCode}: ${response.body}');
     } catch (e, stackTrace) {
       _logger.e('AI Service error', error: e, stackTrace: stackTrace);
       return null;
@@ -87,7 +92,9 @@ class AIProviderService {
       final prompt = provider.batchSummaryPrompt
           .replaceAll('{articles}', buffer.toString());
 
-      final body = provider.type == 'ollama'
+      final isLocal = _isOllamaLocal(provider);
+
+      final body = isLocal
           ? {
               'model': provider.model,
               'prompt': prompt,
@@ -102,7 +109,7 @@ class AIProviderService {
               'stream': false,
             };
 
-      final endpoint = provider.type == 'ollama'
+      final endpoint = isLocal
           ? '${provider.baseUrl}/api/generate'
           : '${provider.baseUrl}/chat/completions';
 
@@ -117,20 +124,14 @@ class AIProviderService {
         Uri.parse(endpoint),
         headers: headers,
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 120));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
-        if (provider.type == 'ollama') {
-          return data['response'];
-        } else {
-          return data['choices']?[0]?['message']?['content'];
-        }
+        return isLocal ? data['response'] : data['choices']?[0]?['message']?['content'];
       }
-      
-      _logger.e('AI batch API error: ${response.statusCode} - ${response.body}');
-      return null;
+
+      throw Exception('AI batch API error ${response.statusCode}: ${response.body}');
     } catch (e, stackTrace) {
       _logger.e('AI batch error', error: e, stackTrace: stackTrace);
       return null;
@@ -145,7 +146,9 @@ class AIProviderService {
     try {
       final prompt = 'Translate the following text to $targetLanguage:\n\n$content';
 
-      final body = provider.type == 'ollama'
+      final isLocal = _isOllamaLocal(provider);
+
+      final body = isLocal
           ? {
               'model': provider.model,
               'prompt': prompt,
@@ -159,7 +162,7 @@ class AIProviderService {
               'stream': false,
             };
 
-      final endpoint = provider.type == 'ollama'
+      final endpoint = isLocal
           ? '${provider.baseUrl}/api/generate'
           : '${provider.baseUrl}/chat/completions';
 
@@ -172,18 +175,19 @@ class AIProviderService {
         Uri.parse(endpoint),
         headers: headers,
         body: jsonEncode(body),
-      );
+      ).timeout(const Duration(seconds: 60));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        
-        if (provider.type == 'ollama') {
+
+        if (isLocal) {
           return data['response'];
         } else {
           return data['choices']?[0]?['message']?['content'];
         }
       }
-      
+
+      _logger.e('Translation API error: ${response.statusCode} - ${response.body}');
       return null;
     } catch (e) {
       _logger.e('Translation error', error: e);
