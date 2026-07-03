@@ -808,7 +808,7 @@ class AppState extends ChangeNotifier {
         name: 'Ollama Cloud',
         type: 'ollama',
         baseUrl: 'https://ollama.com/v1',
-        model: 'deepseek-v3.1:671b-cloud',
+        model: 'deepseek-v3.2:cloud',
       ));
     } else {
       // Migrate old api.ollama.com domain to ollama.com
