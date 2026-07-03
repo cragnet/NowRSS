@@ -44,7 +44,7 @@ jobs:
     - name: Package release
       run: |
         cd build/linux/x64/release/bundle
-        tar --warning=no-file-changed -czf nowrss-linux-x64.tar.gz .
+        tar -czf nowrss-linux-x64.tar.gz . || [ $? -eq 1 ]
         mv nowrss-linux-x64.tar.gz ../../../../../../
     
     - name: Upload artifact
